@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<title>CKEditor 5 Sample</title>
+
+		<!-- Icons (from CK sample) -->
+		<link rel="icon" type="image/png" href="https://ckeditor.com/assets/images/favicons/32x32.png" sizes="32x32">
+		<link rel="icon" type="image/png" href="https://ckeditor.com/assets/images/favicons/96x96.png" sizes="96x96">
+		<link rel="apple-touch-icon" type="image/png" href="https://ckeditor.com/assets/images/favicons/120x120.png" sizes="120x120">
+		<link rel="apple-touch-icon" type="image/png" href="https://ckeditor.com/assets/images/favicons/152x152.png" sizes="152x152">
+		<link rel="apple-touch-icon" type="image/png" href="https://ckeditor.com/assets/images/favicons/167x167.png" sizes="167x167">
+		<link rel="apple-touch-icon" type="image/png" href="https://ckeditor.com/assets/images/favicons/180x180.png" sizes="180x180">
+
+		<!-- Your styles -->
+		<link rel="stylesheet" href="./style.css">
+
+		<!-- CKEditor styles -->
+		<link rel="stylesheet" href="https://cdn.ckeditor.com/ckeditor5/47.2.0/ckeditor5.css" crossorigin>
+		<link rel="stylesheet" href="https://cdn.ckeditor.com/ckeditor5-premium-features/47.2.0/ckeditor5-premium-features.css" crossorigin>
+	</head>
+
+	<body>
+		<div class="main-container">
+			<div class="presence" id="editor-presence"></div>
+
+			<div class="editor-container editor-container_document-editor editor-container_include-annotations" id="editor-container">
+				<div class="editor-container__menu-bar" id="editor-menu-bar"></div>
+				<div class="editor-container__toolbar" id="editor-toolbar"></div>
+
+				<div class="editor-container__editor-wrapper">
+					<!-- ✅ We wrap the editor in #bubble-wrapper -->
+					<div class="editor-container__editor">
+						<div id="bubble-wrapper">
+							<div id="editor"></div>
+						</div>
+					</div>
+
+					<div class="editor-container__sidebar" id="editor-annotations"></div>
+				</div>
+			</div>
+		</div>
+
+		<!-- CKEditor scripts (UMD) -->
+		<script src="https://cdn.ckeditor.com/ckeditor5/47.2.0/ckeditor5.umd.js"></script>
+		<script src="https://cdn.ckeditor.com/ckeditor5-premium-features/47.2.0/ckeditor5-premium-features.umd.js"></script>
+		<script src="https://cdn.ckbox.io/ckbox/2.6.1/ckbox.js"></script>
+
+		<!-- Bridge BEFORE main -->
+		<script type="module" src="/bridge.js"></script>
+
+		<!-- Load Vite-processed main.js -->
+		<script type="module" src="/main.js"></script>
+
+	</body>
+</html>

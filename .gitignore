@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build output (if any)
+dist/
+
+# Local environment
+.env
+.env.local
+*.log
+
+# Mac/Windows junk
+.DS_Store
+Thumbs.db
