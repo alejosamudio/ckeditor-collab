@@ -84,12 +84,12 @@ function applyPendingLoad() {
 // ENV VARIABLES
 // --------------------------------------------------------
 const LICENSE_KEY =
-    "eyJhbGciOiJFUzI1NiJ9.eyJleHAiOjE3NjU0MTExOTksImp0aSI6IjY0MGRjNjNlLWVlOGItNDE1Ny1hZTc2LWVmYzBhNGM3MDVhZSIsInVzYWdlRW5kcG9pbnQiOiJodHRwczovL3Byb3h5LWV2ZW50LmNrZWRpdG9yLmNvbSIsImRpc3RyaWJ1dGlvbkNoYW5uZWwiOlsiY2xvdWQiLCJkcnVwYWwiLCJzaCJdLCJ3aGl0ZUxhYmVsIjp0cnVlLCJsaWNlbnNlVHlwZSI6InRyaWFsIiwiZmVhdHVyZXMiOlsiKiJdLCJ2YyI6ImYxMGQ1MTMyIn0.jsEvYJojhOTd_R0Rdc1KPWrnquUbz0tSdzmvJHldKxoNBWJ3Jl2_TfiqfK_ZNOCVH6um7sgiX_QKwVFG_BYaXw";
+    "eyJhbGciOiJFUzI1NiJ9.eyJleHAiOjE3NjY4Nzk5OTksImp0aSI6IjVmNzhkOTVhLTMzZTAtNDhiMS04OGEyLTZmMjU1NzAwYWExMSIsInVzYWdlRW5kcG9pbnQiOiJodHRwczovL3Byb3h5LWV2ZW50LmNrZWRpdG9yLmNvbSIsImRpc3RyaWJ1dGlvbkNoYW5uZWwiOlsiY2xvdWQiLCJkcnVwYWwiLCJzaCJdLCJ3aGl0ZUxhYmVsIjp0cnVlLCJsaWNlbnNlVHlwZSI6InRyaWFsIiwiZmVhdHVyZXMiOlsiKiJdLCJ2YyI6IjUwZjAyNzVkIn0.ETZpOm2FB3-sk40mTNMUStryrA5nhovAo-P2DsskwfK_afKFHmbcGWdiKxArF6-Iw5FIs5PbrQi1vbhKcQl4qQ";
 
 const TOKEN_URL =
-    "https://8dcvirycnlqo.cke-cs.com/token/dev/be4e0eb6c684c0b6f924971222172b2cad3c53451c5d97bdbe45318d4aec?limit=10";
+    "https://laf1mil96nad.cke-cs.com/token/dev/96eeadba6e8eb480e60d14fd283a68db68df0f43572feb0fc2b78c0de5a8?limit=10";
 
-const WEBSOCKET_URL = "wss://8dcvirycnlqo.cke-cs.com/ws";
+const WEBSOCKET_URL = "wss://laf1mil96nad.cke-cs.com/ws";
 
 // Single document id for now (you can swap this from Bubble later)
 const DOCUMENT_ID = "fv-doc-1";
