@@ -69,13 +69,34 @@ const BRIDGE_ID = "CKE_BUBBLE_BRIDGE_V1";
                 msg.payload && typeof msg.payload.html === "string"
                     ? msg.payload.html
                     : "";
+            
+            // Get comments data if provided
+            const commentsData = msg.payload?.commentsData || msg.payload?.comments || null;
+            
+            // Check if a document ID was provided
+            const newDocId = msg.payload?.documentId || msg.payload?.docId || msg.payload?.channelId;
+            
+            // If a different document ID is provided, reload with that ID
+            if (newDocId && newDocId !== DOCUMENT_ID) {
+                console.log("🔄 Document ID changed, reloading editor with new channel:", newDocId);
+                const url = new URL(window.location.href);
+                url.searchParams.set('docId', newDocId);
+                // Store the HTML and comments to load after reload
+                sessionStorage.setItem('pendingHtml', safeHtml);
+                if (commentsData) {
+                    sessionStorage.setItem('pendingComments', JSON.stringify(commentsData));
+                }
+                window.location.href = url.toString();
+                return;
+            }
 
-            console.log("🟦 Applying LOAD_CONTENT to CKEditor…");
+            console.log("🟦 Applying LOAD_CONTENT to CKEditor…", commentsData ? `(with ${commentsData.length} comments)` : "(no comments data)");
 
             try {
                 if (!window.editor || typeof window.editor.setData !== "function") {
                     console.warn("⚠️ Editor not ready — caching LOAD_CONTENT");
                     window._pendingLoadContent = safeHtml;
+                    window._pendingCommentsData = commentsData;
                     return;
                 }
 
@@ -83,20 +104,145 @@ const BRIDGE_ID = "CKE_BUBBLE_BRIDGE_V1";
                 window.editor.setData(safeHtml);
                 window.suppressEditorEvents = false;
 
+                // Load comments data after HTML is set
+                if (commentsData && commentsData.length > 0) {
+                    // Small delay to let markers initialize
+                    setTimeout(() => {
+                        loadCommentsData(window.editor, commentsData);
+                    }, 500);
+                }
+
                 console.log("✔️ CKEditor content updated by Bubble (early listener)");
             } catch (err) {
                 console.error("❌ Failed setData, caching instead:", err);
                 window._pendingLoadContent = safeHtml;
+                window._pendingCommentsData = commentsData;
+            }
+        }
+        
+        // Handle GET_DOCUMENT_ID request from Bubble
+        if (msg.type === "GET_DOCUMENT_ID") {
+            console.log("📤 Responding with current document ID:", DOCUMENT_ID);
+            try {
+                window.parent.postMessage({
+                    bridge: BRIDGE_ID,
+                    type: "DOCUMENT_ID",
+                    payload: { documentId: DOCUMENT_ID }
+                }, "*");
+            } catch (e) {
+                console.error("❌ Failed to send DOCUMENT_ID:", e);
+            }
+        }
+        
+        // Handle GET_COMMENTS request from Bubble
+        if (msg.type === "GET_COMMENTS") {
+            console.log("📤 Responding with current comments data");
+            try {
+                let commentsData = [];
+                if (window.editor) {
+                    // Try the function or the window global
+                    if (typeof extractCommentsData === 'function') {
+                        commentsData = extractCommentsData(window.editor);
+                    } else if (window.extractCommentsData) {
+                        commentsData = window.extractCommentsData();
+                    }
+                }
+                window.parent.postMessage({
+                    bridge: BRIDGE_ID,
+                    type: "COMMENTS_DATA",
+                    payload: { commentsData }
+                }, "*");
+            } catch (e) {
+                console.error("❌ Failed to send COMMENTS_DATA:", e);
             }
         }
     });
 })();
 
+// Check for pending HTML and comments from a document switch
+(function checkPendingData() {
+    const pendingHtml = sessionStorage.getItem('pendingHtml');
+    const pendingComments = sessionStorage.getItem('pendingComments');
+    
+    if (pendingHtml) {
+        console.log("📄 Found pending HTML from document switch");
+        window._pendingLoadContent = pendingHtml;
+        sessionStorage.removeItem('pendingHtml');
+    }
+    
+    if (pendingComments) {
+        console.log("📄 Found pending comments from document switch");
+        try {
+            window._pendingCommentsData = JSON.parse(pendingComments);
+        } catch (e) {
+            console.warn("⚠️ Could not parse pending comments:", e);
+        }
+        sessionStorage.removeItem('pendingComments');
+    }
+})();
+
+/*
+ * ============================================================
+ * COMMENTS PERSISTENCE DOCUMENTATION
+ * ============================================================
+ * 
+ * Comments can be persisted externally (in your database) alongside the HTML.
+ * 
+ * SAVING COMMENTS:
+ * ----------------
+ * When the document changes, CONTENT_UPDATE is sent with:
+ * {
+ *   bridge: "CKE_BUBBLE_BRIDGE_V1",
+ *   type: "CONTENT_UPDATE",
+ *   payload: {
+ *     html: "<p>Document with <comment-start>markers</comment-end>...</p>",
+ *     commentsData: [
+ *       {
+ *         threadId: "abc123",
+ *         anchorText: "highlighted text",
+ *         isResolved: false,
+ *         comments: [
+ *           { id: "c1", content: "Please fix this", authorId: "user1", authorName: "John", createdAt: "..." }
+ *         ]
+ *       }
+ *     ]
+ *   }
+ * }
+ * 
+ * Store both `html` and `commentsData` in your database.
+ * 
+ * LOADING COMMENTS:
+ * -----------------
+ * When loading a document, send both HTML and comments:
+ * {
+ *   bridge: "CKE_BUBBLE_BRIDGE_V1",
+ *   type: "LOAD_CONTENT",
+ *   payload: {
+ *     html: "<p>Document with <comment-start>markers</comment-end>...</p>",
+ *     commentsData: [ ... same format as saved ... ]
+ *   }
+ * }
+ * 
+ * The HTML contains comment markers (<comment-start>, <comment-end>).
+ * The commentsData contains the actual comment content.
+ * Both are needed to fully restore comments.
+ * 
+ * MANUAL API (from browser console or JavaScript):
+ * ------------------------------------------------
+ * // Extract comments for saving:
+ * const data = window.extractCommentsData();
+ * 
+ * // Load comments from saved data:
+ * window.loadCommentsData(data);
+ * 
+ * ============================================================
+ */
+
 // --------------------------------------------------------
 // Apply pending content once the REAL editor exists
 // --------------------------------------------------------
 function applyPendingLoad() {
-    if (!window._pendingLoadContent) {
+    if (!window._pendingLoadContent && !window._pendingCommentsData) {
         console.log("ℹ️ No pending LOAD_CONTENT to apply");
         return;
     }
@@ -109,13 +255,29 @@ function applyPendingLoad() {
     console.log("🟦 Applying delayed LOAD_CONTENT...");
 
     try {
-        window.suppressEditorEvents = true;
-        window.editor.setData(window._pendingLoadContent);
+        if (window._pendingLoadContent) {
+            window.suppressEditorEvents = true;
+            window.editor.setData(window._pendingLoadContent);
+            window.suppressEditorEvents = false;
+        }
+        
+        // Load comments data after HTML is set
+        if (window._pendingCommentsData && window._pendingCommentsData.length > 0) {
+            console.log(`📥 Loading ${window._pendingCommentsData.length} pending comment thread(s)`);
+            // Delay to let markers initialize
+            setTimeout(() => {
+                if (typeof loadCommentsData === 'function') {
+                    loadCommentsData(window.editor, window._pendingCommentsData);
+                } else if (window.loadCommentsData) {
+                    window.loadCommentsData(window._pendingCommentsData);
+                }
+                window._pendingCommentsData = null;
+            }, 500);
+        }
     } catch (err) {
         console.error("❌ Failed to applyPendingLoad:", err);
         return;
     } finally {
-        window.suppressEditorEvents = false;
         window._pendingLoadContent = null;
     }
 }
@@ -131,7 +293,21 @@ const TOKEN_URL =
 
 const WEBSOCKET_URL = "wss://gww7y1r4wcsk.cke-cs.com/ws";
 
-const DOCUMENT_ID = "fv-doc-1";
+// Get document ID from URL parameter, or use default
+// URL format: ?docId=unique-document-id
+function getDocumentId() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const docId = urlParams.get('docId') || urlParams.get('documentId') || urlParams.get('channelId');
+    if (docId) {
+        console.log("📄 Document ID from URL:", docId);
+        return docId;
+    }
+    // Fallback to default (for testing)
+    console.log("📄 Using default document ID (no URL param)");
+    return "fv-doc-default";
+}
+
+const DOCUMENT_ID = getDocumentId();
 
 document.addEventListener("DOMContentLoaded", () => {
     console.log("🟩 DOM READY");
@@ -340,6 +516,193 @@ function normalizeThreadComments(thread) {
 
     return [];
 }
+
+// --------------------------------------------------------
+// COMMENTS PERSISTENCE - Extract & Load
+// --------------------------------------------------------
+
+/**
+ * Extract all comments data for external storage
+ * Returns an array of thread objects that can be JSON.stringify'd
+ */
+function extractCommentsData(editor) {
+    const repo = getCommentsRepository(editor);
+    if (!repo) {
+        console.warn("⚠️ CommentsRepository not available for extraction");
+        return [];
+    }
+
+    const threads = extractThreadsFromRepository(repo);
+    const commentsData = [];
+
+    for (const thread of threads) {
+        const threadId = thread.id || thread.threadId;
+        if (!threadId) continue;
+
+        // Check resolved status
+        const isResolved =
+            typeof thread.isResolved === "boolean"
+                ? thread.isResolved
+                : thread.resolvedAt != null
+                ? true
+                : typeof thread.getAttribute === "function"
+                ? !!thread.getAttribute("resolved")
+                : false;
+
+        // Extract comments from this thread
+        const comments = normalizeThreadComments(thread);
+        const commentsArray = [];
+
+        for (const comment of comments) {
+            const commentData = {
+                id: comment.id || comment.commentId || null,
+                content: safeString(
+                    comment.content || 
+                    comment.text || 
+                    comment.body || 
+                    comment.message || 
+                    comment.data?.content ||
+                    comment.data?.text ||
+                    ""
+                ),
+                authorId: comment.author?.id || comment.authorId || null,
+                authorName: comment.author?.name || comment.authorName || null,
+                createdAt: comment.createdAt || comment.date || null
+            };
+            commentsArray.push(commentData);
+        }
+
+        // Get anchor text (highlighted text) from marker
+        let anchorText = "";
+        try {
+            const model = editor.model;
+            const markerName = `comment:${threadId}`;
+            const marker = model.markers.get(markerName);
+            
+            if (marker) {
+                const range = marker.getRange();
+                let text = "";
+                for (const item of range.getItems()) {
+                    if (item.is('$text') || item.is('$textProxy')) {
+                        text += item.data;
+                    }
+                }
+                anchorText = text.trim();
+            }
+        } catch (err) {
+            // Silently ignore
+        }
+
+        commentsData.push({
+            threadId: threadId,
+            anchorText: anchorText,
+            isResolved: isResolved,
+            resolvedAt: thread.resolvedAt || null,
+            resolvedBy: thread.resolvedBy || null,
+            comments: commentsArray
+        });
+    }
+
+    console.log(`📤 Extracted ${commentsData.length} comment thread(s) for storage`);
+    return commentsData;
+}
+
+/**
+ * Load comments data from external storage
+ * @param {Editor} editor - CKEditor instance
+ * @param {Array} commentsData - Array of thread objects from extractCommentsData
+ */
+async function loadCommentsData(editor, commentsData) {
+    if (!commentsData || !Array.isArray(commentsData) || commentsData.length === 0) {
+        console.log("ℹ️ No comments data to load");
+        return;
+    }
+
+    const repo = getCommentsRepository(editor);
+    if (!repo) {
+        console.warn("⚠️ CommentsRepository not available for loading");
+        return;
+    }
+
+    console.log(`📥 Loading ${commentsData.length} comment thread(s) from storage`);
+
+    for (const threadData of commentsData) {
+        try {
+            const { threadId, isResolved, comments } = threadData;
+            
+            if (!threadId || !comments || comments.length === 0) {
+                console.warn("⚠️ Skipping invalid thread data:", threadData);
+                continue;
+            }
+
+            // Check if thread already exists (from HTML markers)
+            let thread = null;
+            try {
+                thread = repo.getCommentThread ? repo.getCommentThread(threadId) : null;
+            } catch (e) {}
+
+            if (thread) {
+                // Thread exists from HTML markers - add comments if missing
+                const existingComments = normalizeThreadComments(thread);
+                
+                if (existingComments.length === 0) {
+                    // Add comments to existing thread
+                    for (const commentData of comments) {
+                        try {
+                            if (typeof thread.addComment === 'function') {
+                                thread.addComment({
+                                    content: commentData.content,
+                                    authorId: commentData.authorId
+                                });
+                            } else if (typeof repo.addComment === 'function') {
+                                repo.addComment(threadId, {
+                                    content: commentData.content,
+                                    authorId: commentData.authorId
+                                });
+                            }
+                        } catch (e) {
+                            console.warn(`⚠️ Could not add comment to thread ${threadId}:`, e);
+                        }
+                    }
+                }
+
+                // Set resolved status
+                if (isResolved) {
+                    try {
+                        if (typeof thread.resolve === 'function') {
+                            thread.resolve();
+                        } else if ('isResolved' in thread) {
+                            thread.isResolved = true;
+                        }
+                    } catch (e) {}
+                }
+
+                console.log(`✅ Updated existing thread: ${threadId}`);
+            } else {
+                // Thread doesn't exist - might be orphaned or marker missing
+                console.warn(`⚠️ Thread ${threadId} has no marker in document - skipping`);
+            }
+        } catch (err) {
+            console.error(`❌ Failed to load thread:`, err);
+        }
+    }
+
+    console.log("✅ Comments data loaded");
+}
+
+// Make functions available globally for Bubble
+window.extractCommentsData = function() {
+    if (window.editor) {
+        return extractCommentsData(window.editor);
+    }
+    return [];
+};
+
+window.loadCommentsData = function(data) {
+    if (window.editor) {
+        return loadCommentsData(window.editor, data);
+    }
+};
 
 function formatCommentsForAI(editor) {
     const repo = getCommentsRepository(editor);
@@ -1416,6 +1779,7 @@ const editorConfig = {
 // CREATE EDITOR
 // --------------------------------------------------------
 console.log("🟦 Creating editor...");
+console.log("📄 Using Document/Channel ID:", DOCUMENT_ID);
 
 DecoupledEditor.create(document.querySelector("#editor"), editorConfig)
     .then((editor) => {
@@ -1652,8 +2016,13 @@ DecoupledEditor.create(document.querySelector("#editor"), editorConfig)
             if (window.suppressEditorEvents) return;
 
             const html = editor.getData();
-            console.log("🟧 CONTENT_UPDATE:", html.slice(0, 120));
-            window.sendToParent("CONTENT_UPDATE", { html });
+            const commentsData = extractCommentsData(editor);
+            
+            console.log("🟧 CONTENT_UPDATE:", html.slice(0, 120), `(${commentsData.length} comments)`);
+            window.sendToParent("CONTENT_UPDATE", { 
+                html,
+                commentsData
+            });
         });
     })
     .catch((err) => {
