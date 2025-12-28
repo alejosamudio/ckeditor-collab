@@ -11,7 +11,8 @@
 
 console.log("🟦 MAIN.JS LOADED");
 
-const BRIDGE_ID = "CKE_BUBBLE_BRIDGE_V1";
+const BRIDGE_ID = "CKE_BUBBLE_BRIDGE_V1";  // For receiving FROM Bubble
+const BRIDGE_ID_OUT = "CKE_BUBBLE_MINI_V1";  // For sending TO Bubble
 
 // --------------------------------------------------------
 // Intercept custom AI action API calls and block them
@@ -125,7 +126,7 @@ const BRIDGE_ID = "CKE_BUBBLE_BRIDGE_V1";
             console.log("📤 Responding with current document ID:", DOCUMENT_ID);
             try {
                 window.parent.postMessage({
-                    bridge: BRIDGE_ID,
+                    bridge: BRIDGE_ID_OUT,
                     type: "DOCUMENT_ID",
                     payload: { documentId: DOCUMENT_ID }
                 }, "*");
@@ -148,7 +149,7 @@ const BRIDGE_ID = "CKE_BUBBLE_BRIDGE_V1";
                     }
                 }
                 window.parent.postMessage({
-                    bridge: BRIDGE_ID,
+                    bridge: BRIDGE_ID_OUT,
                     type: "COMMENTS_DATA",
                     payload: { commentsData }
                 }, "*");
@@ -445,7 +446,7 @@ class CommentsIntegration extends Plugin {}
 if (typeof window.sendToParent !== "function") {
     window.sendToParent = function (type, payload = {}) {
         const message = {
-            bridge: BRIDGE_ID,
+            bridge: BRIDGE_ID_OUT,  // Use outgoing bridge ID
             type,
             payload
         };
@@ -576,8 +577,33 @@ function extractCommentsData(editor) {
         let anchorText = "";
         try {
             const model = editor.model;
-            const markerName = `comment:${threadId}`;
-            const marker = model.markers.get(markerName);
+            
+            // Try different marker name formats
+            const markerFormats = [
+                `comment:${threadId}`,
+                threadId
+            ];
+            
+            let marker = null;
+            for (const markerName of markerFormats) {
+                marker = model.markers.get(markerName);
+                if (marker) {
+                    console.log(`🔍 Found marker with name: ${markerName}`);
+                    break;
+                }
+            }
+            
+            // If still not found, search through all markers
+            if (!marker) {
+                for (const m of model.markers) {
+                    const name = m.name || '';
+                    if (name.includes(threadId) || threadId.includes(name.replace('comment:', ''))) {
+                        marker = m;
+                        console.log(`🔍 Found marker by search: ${name}`);
+                        break;
+                    }
+                }
+            }
             
             if (marker) {
                 const range = marker.getRange();
@@ -588,9 +614,30 @@ function extractCommentsData(editor) {
                     }
                 }
                 anchorText = text.trim();
+                console.log(`🔍 Anchor text for ${threadId}: "${anchorText}"`);
+            } else {
+                console.log(`⚠️ No marker found for thread: ${threadId}`);
+                // Log available markers for debugging
+                const availableMarkers = [];
+                for (const m of model.markers) {
+                    if (m.name && m.name.startsWith('comment:')) {
+                        availableMarkers.push(m.name);
+                    }
+                }
+                if (availableMarkers.length > 0) {
+                    console.log(`📋 Available comment markers: ${availableMarkers.join(', ')}`);
+                }
+            }
+            
+            // Fallback: try to get from thread's context if available
+            if (!anchorText && thread.context) {
+                anchorText = safeString(thread.context);
+                if (anchorText) {
+                    console.log(`🔍 Got anchor text from thread.context: "${anchorText}"`);
+                }
             }
         } catch (err) {
-            // Silently ignore
+            console.warn(`⚠️ Error getting anchor text for ${threadId}:`, err);
         }
 
         commentsData.push({
