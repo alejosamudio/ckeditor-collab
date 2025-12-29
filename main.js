@@ -535,10 +535,52 @@ function extractCommentsData(editor) {
 
     const threads = extractThreadsFromRepository(repo);
     const commentsData = [];
+    
+    // Build a map of marker names for quick lookup
+    const markerMap = new Map();
+    try {
+        for (const marker of editor.model.markers) {
+            const name = marker.name || '';
+            if (name.startsWith('comment:')) {
+                // Extract the ID part after 'comment:'
+                const markerId = name.substring(8); // Remove 'comment:' prefix
+                markerMap.set(markerId, marker);
+                // Also map the base ID (without suffix) to the full marker
+                const baseId = markerId.split(':')[0];
+                if (!markerMap.has(baseId)) {
+                    markerMap.set(baseId, marker);
+                }
+                console.log(`🔍 Found marker: ${name} (baseId: ${baseId})`);
+            }
+        }
+    } catch (err) {
+        console.warn("⚠️ Error building marker map:", err);
+    }
 
     for (const thread of threads) {
-        const threadId = thread.id || thread.threadId;
-        if (!threadId) continue;
+        const repoThreadId = thread.id || thread.threadId;
+        if (!repoThreadId) continue;
+        
+        // Find the actual marker name for this thread
+        // The marker might have a suffix like :9575c
+        let actualThreadId = repoThreadId;
+        let marker = markerMap.get(repoThreadId);
+        
+        if (marker) {
+            // Get the full marker name (without 'comment:' prefix)
+            actualThreadId = marker.name.substring(8);
+            console.log(`🔍 Thread ${repoThreadId} -> marker ID: ${actualThreadId}`);
+        } else {
+            // Try to find marker by searching
+            for (const [markerId, m] of markerMap) {
+                if (markerId.startsWith(repoThreadId) || repoThreadId.startsWith(markerId.split(':')[0])) {
+                    marker = m;
+                    actualThreadId = markerId;
+                    console.log(`🔍 Thread ${repoThreadId} matched to marker: ${actualThreadId}`);
+                    break;
+                }
+            }
+        }
 
         // Check resolved status
         const isResolved =
@@ -573,38 +615,9 @@ function extractCommentsData(editor) {
             commentsArray.push(commentData);
         }
 
-        // Get anchor text (highlighted text) from marker
+        // Get anchor text (highlighted text) from the marker we already found
         let anchorText = "";
         try {
-            const model = editor.model;
-            
-            // Try different marker name formats
-            const markerFormats = [
-                `comment:${threadId}`,
-                threadId
-            ];
-            
-            let marker = null;
-            for (const markerName of markerFormats) {
-                marker = model.markers.get(markerName);
-                if (marker) {
-                    console.log(`🔍 Found marker with name: ${markerName}`);
-                    break;
-                }
-            }
-            
-            // If still not found, search through all markers
-            if (!marker) {
-                for (const m of model.markers) {
-                    const name = m.name || '';
-                    if (name.includes(threadId) || threadId.includes(name.replace('comment:', ''))) {
-                        marker = m;
-                        console.log(`🔍 Found marker by search: ${name}`);
-                        break;
-                    }
-                }
-            }
-            
             if (marker) {
                 const range = marker.getRange();
                 let text = "";
@@ -614,19 +627,9 @@ function extractCommentsData(editor) {
                     }
                 }
                 anchorText = text.trim();
-                console.log(`🔍 Anchor text for ${threadId}: "${anchorText}"`);
+                console.log(`🔍 Anchor text for ${actualThreadId}: "${anchorText}"`);
             } else {
-                console.log(`⚠️ No marker found for thread: ${threadId}`);
-                // Log available markers for debugging
-                const availableMarkers = [];
-                for (const m of model.markers) {
-                    if (m.name && m.name.startsWith('comment:')) {
-                        availableMarkers.push(m.name);
-                    }
-                }
-                if (availableMarkers.length > 0) {
-                    console.log(`📋 Available comment markers: ${availableMarkers.join(', ')}`);
-                }
+                console.log(`⚠️ No marker found for thread: ${actualThreadId}`);
             }
             
             // Fallback: try to get from thread's context if available
@@ -637,11 +640,11 @@ function extractCommentsData(editor) {
                 }
             }
         } catch (err) {
-            console.warn(`⚠️ Error getting anchor text for ${threadId}:`, err);
+            console.warn(`⚠️ Error getting anchor text for ${actualThreadId}:`, err);
         }
 
         commentsData.push({
-            threadId: threadId,
+            threadId: actualThreadId,
             anchorText: anchorText,
             isResolved: isResolved,
             resolvedAt: thread.resolvedAt || null,
