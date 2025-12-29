@@ -2053,6 +2053,57 @@ DecoupledEditor.create(document.querySelector("#editor"), editorConfig)
                 }, 200);
             });
 
+            // ⭐ Watch for AI panel visibility changes and toggle class
+            const editorContainer = document.querySelector('.editor-container_document-editor') || 
+                                   document.querySelector('#editor-container');
+            
+            if (editorContainer) {
+                const checkAIPanelVisibility = () => {
+                    const aiPanel = document.querySelector('.ck-ai-tabs__overlay');
+                    
+                    // Check multiple ways if panel is visible
+                    let isVisible = false;
+                    if (aiPanel) {
+                        const style = window.getComputedStyle(aiPanel);
+                        const hasWidth = aiPanel.offsetWidth > 0;
+                        const hasHeight = aiPanel.offsetHeight > 0;
+                        const notHidden = style.display !== 'none' && style.visibility !== 'hidden';
+                        isVisible = hasWidth && hasHeight && notHidden;
+                    }
+                    
+                    const currentlyOpen = editorContainer.classList.contains('ai-panel-open');
+                    
+                    if (isVisible && !currentlyOpen) {
+                        editorContainer.classList.add('ai-panel-open');
+                        console.log("🟪 AI panel OPENED - sidebar expanded");
+                    } else if (!isVisible && currentlyOpen) {
+                        editorContainer.classList.remove('ai-panel-open');
+                        console.log("🟪 AI panel CLOSED - sidebar narrowed");
+                    }
+                };
+                
+                // Check periodically
+                setInterval(checkAIPanelVisibility, 200);
+                
+                // Also check on mutations
+                const observer = new MutationObserver(() => {
+                    setTimeout(checkAIPanelVisibility, 50);
+                });
+                observer.observe(document.body, { 
+                    childList: true, 
+                    subtree: true, 
+                    attributes: true,
+                    attributeFilter: ['class', 'style']
+                });
+                
+                // Initial check
+                checkAIPanelVisibility();
+                
+                console.log("🟪 AI panel visibility watcher installed");
+            } else {
+                console.warn("⚠️ Could not find editor container for AI panel watcher");
+            }
+
         } catch (e) {
             console.warn("⚠️ Could not hide AI panel:", e);
         }

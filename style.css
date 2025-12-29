@@ -9,6 +9,7 @@
 :root {
 	--ck-content-font-family: 'Lato';
 	--ck-sidebar-width: 270px;
+	--ck-sidebar-width-narrow: 60px;
 	--ck-editor-height: 100%;
 	
 	/* Modern color palette */
@@ -150,31 +151,35 @@ body {
 	transition: box-shadow 0.2s ease, max-width 0.3s ease, margin 0.3s ease;
 }
 
-/* When AI panel is open - adjust margins for better centering */
-.editor-container_document-editor:has(.ck-ai-tabs__overlay) .editor-container__editor .ck.ck-editor__editable {
+/* When AI panel is open - wider sidebar, adjust margins */
+.editor-container_document-editor.ai-panel-open .editor-container__editor .ck.ck-editor__editable,
+#editor-container.ai-panel-open .editor-container__editor .ck.ck-editor__editable {
 	margin-left: 40px;
-	margin-right: 40px;
+	margin-right: 0;
 }
 
-/* On larger screens with AI panel open, keep document centered nicely */
+/* On larger screens with AI panel open */
 @media (min-width: 1600px) {
-	.editor-container_document-editor:has(.ck-ai-tabs__overlay) .editor-container__editor .ck.ck-editor__editable {
+	.editor-container_document-editor.ai-panel-open .editor-container__editor .ck.ck-editor__editable,
+	#editor-container.ai-panel-open .editor-container__editor .ck.ck-editor__editable {
 		margin-left: 60px;
-		margin-right: 60px;
+		margin-right: 0;
 	}
 }
 
 @media (min-width: 1920px) {
-	.editor-container_document-editor:has(.ck-ai-tabs__overlay) .editor-container__editor .ck.ck-editor__editable {
+	.editor-container_document-editor.ai-panel-open .editor-container__editor .ck.ck-editor__editable,
+	#editor-container.ai-panel-open .editor-container__editor .ck.ck-editor__editable {
 		margin-left: 80px;
-		margin-right: 80px;
+		margin-right: 0;
 	}
 }
 
-/* When AI panel is closed - symmetric margins */
-.editor-container_document-editor:not(:has(.ck-ai-tabs__overlay)) .editor-container__editor .ck.ck-editor__editable {
+/* When AI panel is closed - narrower sidebar (125px) */
+.editor-container_document-editor:not(.ai-panel-open) .editor-container__editor .ck.ck-editor__editable,
+#editor-container:not(.ai-panel-open) .editor-container__editor .ck.ck-editor__editable {
 	margin-left: 72px;
-	margin-right: 72px;
+	margin-right: 0;
 }
 
 .editor-container_document-editor .editor-container__editor .ck.ck-editor__editable:focus {
@@ -182,16 +187,76 @@ body {
 	            0 12px 32px rgba(0, 0, 0, 0.12);
 }
 
-.editor-container_include-annotations .editor-container__editor .ck.ck-editor__editable {
-	margin-right: 0;
-}
+/* Margin is now handled dynamically by .has-comments and .ai-panel-open classes */
 
-.editor-container__sidebar {
-	min-width: var(--ck-sidebar-width);
-	max-width: var(--ck-sidebar-width);
+/* ============================================================
+   SIDEBAR WIDTH - Dynamic based on AI panel state
+   ============================================================ */
+
+/* Default sidebar (when AI panel is HIDDEN) - 50px */
+.editor-container__sidebar,
+#editor-annotations {
+	min-width: 50px !important;
+	max-width: 50px !important;
+	width: 50px !important;
 	margin-top: 28px;
 	margin-left: 10px;
 	margin-right: 10px;
+	transition: all 0.3s ease;
+	overflow: visible !important;
+}
+
+/* The CKEditor sidebar inside */
+.editor-container__sidebar .ck-sidebar,
+#editor-annotations .ck-sidebar {
+	min-width: 50px !important;
+	max-width: 50px !important;
+	width: 50px !important;
+	overflow: visible !important;
+}
+
+/* Large screens (>1700px) - wider sidebar when AI closed */
+@media (min-width: 1700px) {
+	.editor-container__sidebar,
+	#editor-annotations {
+		min-width: 175px !important;
+		max-width: 175px !important;
+		width: 175px !important;
+	}
+	
+	.editor-container__sidebar .ck-sidebar,
+	#editor-annotations .ck-sidebar {
+		min-width: 175px !important;
+		max-width: 175px !important;
+		width: 175px !important;
+	}
+}
+
+/* When AI panel is OPEN - wider sidebar (270px) */
+.editor-container_document-editor.ai-panel-open .editor-container__sidebar,
+.editor-container_document-editor.ai-panel-open #editor-annotations,
+#editor-container.ai-panel-open .editor-container__sidebar,
+#editor-container.ai-panel-open #editor-annotations {
+	min-width: var(--ck-sidebar-width) !important;
+	max-width: var(--ck-sidebar-width) !important;
+	width: var(--ck-sidebar-width) !important;
+}
+
+.editor-container_document-editor.ai-panel-open .editor-container__sidebar .ck-sidebar,
+.editor-container_document-editor.ai-panel-open #editor-annotations .ck-sidebar,
+#editor-container.ai-panel-open .editor-container__sidebar .ck-sidebar,
+#editor-container.ai-panel-open #editor-annotations .ck-sidebar {
+	min-width: var(--ck-sidebar-width) !important;
+	max-width: var(--ck-sidebar-width) !important;
+	width: var(--ck-sidebar-width) !important;
+}
+
+/* Ensure comment threads/annotations can overflow the narrow sidebar */
+.ck-annotation,
+.ck-thread,
+.ck-comment-thread {
+	min-width: 250px !important;
+	position: relative;
 }
 
 /* Modern toolbar buttons */
