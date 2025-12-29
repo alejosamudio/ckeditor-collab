@@ -73,25 +73,19 @@ const BRIDGE_ID_OUT = "CKE_BUBBLE_MINI_V1";  // For sending TO Bubble
             
             // Get comments data if provided
             const commentsData = msg.payload?.commentsData || msg.payload?.comments || null;
-            
-            // Check if a document ID was provided
-            const newDocId = msg.payload?.documentId || msg.payload?.docId || msg.payload?.channelId;
-            
-            // If a different document ID is provided, reload with that ID
-            if (newDocId && newDocId !== DOCUMENT_ID) {
-                console.log("🔄 Document ID changed, reloading editor with new channel:", newDocId);
-                const url = new URL(window.location.href);
-                url.searchParams.set('docId', newDocId);
-                // Store the HTML and comments to load after reload
-                sessionStorage.setItem('pendingHtml', safeHtml);
-                if (commentsData) {
-                    sessionStorage.setItem('pendingComments', JSON.stringify(commentsData));
-                }
-                window.location.href = url.toString();
-                return;
-            }
 
             console.log("🟦 Applying LOAD_CONTENT to CKEditor…", commentsData ? `(with ${commentsData.length} comments)` : "(no comments data)");
+
+            // Populate comments store BEFORE setting HTML
+            // This way, when CKEditor parses the markers, the adapter can find the data
+            if (commentsData && commentsData.length > 0) {
+                window._commentsStore = window._commentsStore || {};
+                commentsData.forEach(thread => {
+                    window._commentsStore[thread.threadId] = thread;
+                    console.log(`📦 Stored thread in _commentsStore: ${thread.threadId}`);
+                });
+                console.log(`📥 Loaded ${commentsData.length} comment thread(s) into store`);
+            }
 
             try {
                 if (!window.editor || typeof window.editor.setData !== "function") {
@@ -105,13 +99,7 @@ const BRIDGE_ID_OUT = "CKE_BUBBLE_MINI_V1";  // For sending TO Bubble
                 window.editor.setData(safeHtml);
                 window.suppressEditorEvents = false;
 
-                // Load comments data after HTML is set
-                if (commentsData && commentsData.length > 0) {
-                    // Small delay to let markers initialize
-                    setTimeout(() => {
-                        loadCommentsData(window.editor, commentsData);
-                    }, 500);
-                }
+                // Comments are loaded automatically by the adapter when it sees the markers
 
                 console.log("✔️ CKEditor content updated by Bubble (early listener)");
             } catch (err) {
@@ -256,25 +244,24 @@ function applyPendingLoad() {
     console.log("🟦 Applying delayed LOAD_CONTENT...");
 
     try {
+        // Populate comments store BEFORE setting HTML
+        if (window._pendingCommentsData && window._pendingCommentsData.length > 0) {
+            console.log(`📥 Loading ${window._pendingCommentsData.length} pending comment thread(s) into store`);
+            window._commentsStore = window._commentsStore || {};
+            window._pendingCommentsData.forEach(thread => {
+                window._commentsStore[thread.threadId] = thread;
+                console.log(`📦 Stored thread: ${thread.threadId}`);
+            });
+            window._pendingCommentsData = null;
+        }
+
         if (window._pendingLoadContent) {
             window.suppressEditorEvents = true;
             window.editor.setData(window._pendingLoadContent);
             window.suppressEditorEvents = false;
         }
         
-        // Load comments data after HTML is set
-        if (window._pendingCommentsData && window._pendingCommentsData.length > 0) {
-            console.log(`📥 Loading ${window._pendingCommentsData.length} pending comment thread(s)`);
-            // Delay to let markers initialize
-            setTimeout(() => {
-                if (typeof loadCommentsData === 'function') {
-                    loadCommentsData(window.editor, window._pendingCommentsData);
-                } else if (window.loadCommentsData) {
-                    window.loadCommentsData(window._pendingCommentsData);
-                }
-                window._pendingCommentsData = null;
-            }, 500);
-        }
+        // Comments are loaded automatically by the adapter when it sees the markers
     } catch (err) {
         console.error("❌ Failed to applyPendingLoad:", err);
         return;
@@ -292,7 +279,7 @@ const LICENSE_KEY =
 const TOKEN_URL =
     'https://gww7y1r4wcsk.cke-cs.com/token/dev/f903477084613189d51e5bf1be3d077d0a7dab07d2e606571c52e58a90e0?limit=10';
 
-const WEBSOCKET_URL = "wss://gww7y1r4wcsk.cke-cs.com/ws";
+// WEBSOCKET_URL removed - using async comments stored in Bubble
 
 // Get document ID from URL parameter, or use default
 // URL format: ?docId=unique-document-id
@@ -438,7 +425,229 @@ class UsersIntegration extends Plugin {
     }
 }
 
-class CommentsIntegration extends Plugin {}
+class CommentsIntegration extends Plugin {
+    static get requires() {
+        return ['CommentsRepository'];
+    }
+
+    static get pluginName() {
+        return 'CommentsIntegration';
+    }
+
+    init() {
+        const editor = this.editor;
+        const commentsRepository = editor.plugins.get('CommentsRepository');
+
+        // Store for comments data (loaded from Bubble)
+        window._commentsStore = window._commentsStore || {};
+
+        // Set up the adapter
+        commentsRepository.adapter = {
+            /**
+             * Called when CKEditor needs comment thread data
+             * This happens when HTML contains comment markers
+             */
+            getCommentThread: async ({ threadId }) => {
+                console.log(`🔍 Adapter: getCommentThread(${threadId})`);
+                
+                const stored = window._commentsStore[threadId];
+                if (stored) {
+                    console.log(`✅ Found stored thread: ${threadId}`, stored);
+                    return {
+                        threadId: stored.threadId,
+                        comments: stored.comments.map(c => ({
+                            commentId: c.id,
+                            authorId: c.authorId,
+                            content: c.content,
+                            createdAt: new Date(c.createdAt)
+                        })),
+                        resolvedAt: stored.resolvedAt ? new Date(stored.resolvedAt) : null,
+                        resolvedBy: stored.resolvedBy || null,
+                        attributes: {},
+                        isFromAdapter: true
+                    };
+                }
+                
+                console.log(`⚠️ Thread not found in store: ${threadId}`);
+                // Return empty thread so CKEditor doesn't crash
+                return {
+                    threadId: threadId,
+                    comments: [],
+                    isFromAdapter: true
+                };
+            },
+
+            /**
+             * Called when a new comment thread is created
+             */
+            addCommentThread: async (data) => {
+                console.log('📝 Adapter: addCommentThread', data);
+                
+                // Store locally
+                window._commentsStore[data.threadId] = {
+                    threadId: data.threadId,
+                    comments: data.comments ? data.comments.map(c => ({
+                        id: c.commentId,
+                        content: c.content,
+                        authorId: c.authorId,
+                        authorName: c.authorId, // Will be resolved by Users plugin
+                        createdAt: c.createdAt ? c.createdAt.toISOString() : new Date().toISOString()
+                    })) : [],
+                    isResolved: false,
+                    resolvedAt: null,
+                    resolvedBy: null
+                };
+                
+                // Trigger update to Bubble
+                triggerContentUpdate(editor);
+                
+                return {
+                    threadId: data.threadId,
+                    comments: data.comments || []
+                };
+            },
+
+            /**
+             * Called when a comment is added to existing thread
+             */
+            addComment: async (data) => {
+                console.log('📝 Adapter: addComment', data);
+                
+                const thread = window._commentsStore[data.threadId];
+                if (thread) {
+                    thread.comments.push({
+                        id: data.commentId,
+                        content: data.content,
+                        authorId: data.authorId,
+                        authorName: data.authorId,
+                        createdAt: new Date().toISOString()
+                    });
+                }
+                
+                // Trigger update to Bubble
+                triggerContentUpdate(editor);
+                
+                return {
+                    createdAt: new Date()
+                };
+            },
+
+            /**
+             * Called when a comment is updated
+             */
+            updateComment: async (data) => {
+                console.log('📝 Adapter: updateComment', data);
+                
+                const thread = window._commentsStore[data.threadId];
+                if (thread) {
+                    const comment = thread.comments.find(c => c.id === data.commentId);
+                    if (comment && data.content !== undefined) {
+                        comment.content = data.content;
+                    }
+                }
+                
+                // Trigger update to Bubble
+                triggerContentUpdate(editor);
+                
+                return {};
+            },
+
+            /**
+             * Called when a comment is removed
+             */
+            removeComment: async (data) => {
+                console.log('📝 Adapter: removeComment', data);
+                
+                const thread = window._commentsStore[data.threadId];
+                if (thread) {
+                    thread.comments = thread.comments.filter(c => c.id !== data.commentId);
+                }
+                
+                // Trigger update to Bubble
+                triggerContentUpdate(editor);
+                
+                return {};
+            },
+
+            /**
+             * Called when a thread is removed
+             */
+            removeCommentThread: async (data) => {
+                console.log('📝 Adapter: removeCommentThread', data);
+                
+                delete window._commentsStore[data.threadId];
+                
+                // Trigger update to Bubble
+                triggerContentUpdate(editor);
+                
+                return {};
+            },
+
+            /**
+             * Called when a thread is resolved
+             */
+            resolveCommentThread: async (data) => {
+                console.log('📝 Adapter: resolveCommentThread', data);
+                
+                const thread = window._commentsStore[data.threadId];
+                if (thread) {
+                    thread.isResolved = true;
+                    thread.resolvedAt = new Date().toISOString();
+                    thread.resolvedBy = 'user-1'; // Current user
+                }
+                
+                // Trigger update to Bubble
+                triggerContentUpdate(editor);
+                
+                return {
+                    resolvedAt: new Date(),
+                    resolvedBy: 'user-1'
+                };
+            },
+
+            /**
+             * Called when a resolved thread is reopened
+             */
+            reopenCommentThread: async (data) => {
+                console.log('📝 Adapter: reopenCommentThread', data);
+                
+                const thread = window._commentsStore[data.threadId];
+                if (thread) {
+                    thread.isResolved = false;
+                    thread.resolvedAt = null;
+                    thread.resolvedBy = null;
+                }
+                
+                // Trigger update to Bubble
+                triggerContentUpdate(editor);
+                
+                return {};
+            }
+        };
+
+        console.log('✅ CommentsAdapter configured');
+    }
+}
+
+/**
+ * Helper to trigger CONTENT_UPDATE after comment changes
+ */
+function triggerContentUpdate(editor) {
+    // Small delay to let CKEditor finish its internal updates
+    setTimeout(() => {
+        if (editor && typeof editor.getData === 'function') {
+            const html = editor.getData();
+            const commentsData = Object.values(window._commentsStore || {});
+            
+            window.sendToParent("CONTENT_UPDATE", { 
+                html: html,
+                commentsData: commentsData
+            });
+            
+            console.log(`🟧 CONTENT_UPDATE (from adapter): ${commentsData.length} comments`);
+        }
+    }, 100);
+}
 
 // --------------------------------------------------------
 // Helper: send message to Bubble parent
@@ -1717,13 +1926,11 @@ const editorConfig = {
     ],
 
     cloudServices: {
-        tokenUrl: TOKEN_URL,
-        webSocketUrl: WEBSOCKET_URL
+        tokenUrl: TOKEN_URL
+        // webSocketUrl removed - using async comments stored in Bubble
     },
 
-    collaboration: {
-        channelId: DOCUMENT_ID
-    },
+    // collaboration config removed - not needed for async comments
 
     // ⭐ USE CUSTOM COMMENT THREAD VIEW
     comments: {
