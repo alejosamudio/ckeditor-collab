@@ -287,6 +287,52 @@ const DOCUMENT_ID = getDocumentId();
 
 document.addEventListener("DOMContentLoaded", () => {
     console.log("🟩 DOM READY");
+    
+    // ⭐ Inject CSS for comment styling
+    const style = document.createElement('style');
+    style.textContent = `
+        /* Remove grey background from annotations sidebar */
+        .ck-sidebar,
+        .ck-sidebar__wrapper,
+        #editor-annotations,
+        .ck-annotation-wrapper,
+        .ck-annotations__container {
+            background: transparent !important;
+            background-color: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+        
+        /* Make comment thread background white */
+        .ck-thread,
+        .ck-comment,
+        .ck-annotation {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+        }
+        
+        /* Make comment edit field white when editing */
+        .ck-comment__input-wrapper,
+        .ck-comment__input,
+        .ck-comment-input,
+        .ck-thread .ck-editor__editable,
+        .ck-comment .ck-editor__editable,
+        .ck-annotation .ck-editor__editable,
+        .ck-comment__input-wrapper .ck-editor__editable,
+        .ck-editor__editable.ck-editor__editable_inline {
+            background-color: #ffffff !important;
+            background: #ffffff !important;
+        }
+        
+        /* Ensure focused state is also white */
+        .ck-editor__editable:focus,
+        .ck-editor__editable_focused {
+            background-color: #ffffff !important;
+            background: #ffffff !important;
+        }
+    `;
+    document.head.appendChild(style);
+    console.log("🎨 Comment styling CSS injected");
 });
 
 // --------------------------------------------------------
@@ -1114,28 +1160,29 @@ Rules:
             return;
         }
         
-        // ⭐ Check current state and force open if needed
-        const panelView = aiChat.ui?.view?.panelView;
-        const isVisible = panelView?.isVisible;
+        // ⭐ Check if AI panel is actually visible in DOM
         const aiRootBefore = findAIChatRoot();
+        const isActuallyVisible = aiRootBefore && aiRootBefore.offsetParent !== null;
         
         console.log("🟪 AI Panel state:", { 
-            panelViewExists: !!panelView, 
-            isVisible: isVisible,
-            aiRootExists: !!aiRootBefore 
+            aiRootExists: !!aiRootBefore,
+            isActuallyVisible: isActuallyVisible
         });
         
-        // Force open the panel if not clearly visible
-        if (!isVisible || !aiRootBefore) {
+        // ⭐ Only open if NOT actually visible in DOM
+        if (!isActuallyVisible) {
             console.log("🟪 Opening AI panel...");
             editor.execute('toggleAi');
             await new Promise(resolve => setTimeout(resolve, 800));
+        } else {
+            console.log("🟪 AI panel already visible, skipping toggle");
+            await new Promise(resolve => setTimeout(resolve, 200));
         }
         
-        // Double-check and retry if needed
+        // Verify panel is now open
         let aiRoot = findAIChatRoot();
-        if (!aiRoot) {
-            console.log("🟪 AI panel still not found, retrying toggle...");
+        if (!aiRoot || aiRoot.offsetParent === null) {
+            console.log("🟪 AI panel still not visible, trying to open...");
             editor.execute('toggleAi');
             await new Promise(resolve => setTimeout(resolve, 800));
             aiRoot = findAIChatRoot();
@@ -1299,10 +1346,24 @@ class CustomCommentThreadView extends BaseCommentThreadView {
         fixWithAIButton.on('execute', () => {
             const threadId = this._model.id;
             console.log("🟦 Fix with AI clicked for thread:", threadId);
+            dropdown.isOpen = false;
+            
             if (window.editor) {
+                // ⭐ Hide the comment thread by moving selection away
+                try {
+                    // Move cursor to start of document to deselect the comment
+                    window.editor.model.change(writer => {
+                        const root = window.editor.model.document.getRoot();
+                        const position = writer.createPositionAt(root, 0);
+                        writer.setSelection(position);
+                    });
+                    console.log("🟦 Moved selection to deselect comment thread");
+                } catch (e) {
+                    console.warn("⚠️ Could not deselect thread:", e);
+                }
+                
                 handleFixWithAI(window.editor, threadId);
             }
-            dropdown.isOpen = false;
         });
         fixWithAIItem.children.add(fixWithAIButton);
         listView.items.add(fixWithAIItem);
