@@ -7,6 +7,7 @@
  *  - Editor → Bubble CONTENT_UPDATE support
  *  - Decoupled editor + menu bar
  *  - Custom "Fix with AI" action in comment thread dropdown
+ *  - LOCAL COMMENTS STORAGE (adapter overrides cloud)
  */
 
 console.log("🟦 MAIN.JS LOADED");
@@ -76,7 +77,7 @@ const BRIDGE_ID_OUT = "CKE_BUBBLE_MINI_V1";  // For sending TO Bubble
 
             console.log("🟦 Applying LOAD_CONTENT to CKEditor…", commentsData ? `(with ${commentsData.length} comments)` : "(no comments data)");
 
-            // Populate comments store BEFORE setting HTML
+            // ⭐ Populate comments store BEFORE setting HTML
             // This way, when CKEditor parses the markers, the adapter can find the data
             if (commentsData && commentsData.length > 0) {
                 window._commentsStore = window._commentsStore || {};
@@ -98,8 +99,6 @@ const BRIDGE_ID_OUT = "CKE_BUBBLE_MINI_V1";  // For sending TO Bubble
                 window.suppressEditorEvents = true;
                 window.editor.setData(safeHtml);
                 window.suppressEditorEvents = false;
-
-                // Comments are loaded automatically by the adapter when it sees the markers
 
                 console.log("✔️ CKEditor content updated by Bubble (early listener)");
             } catch (err) {
@@ -163,6 +162,11 @@ const BRIDGE_ID_OUT = "CKE_BUBBLE_MINI_V1";  // For sending TO Bubble
         console.log("📄 Found pending comments from document switch");
         try {
             window._pendingCommentsData = JSON.parse(pendingComments);
+            // Also populate the store
+            window._commentsStore = window._commentsStore || {};
+            window._pendingCommentsData.forEach(thread => {
+                window._commentsStore[thread.threadId] = thread;
+            });
         } catch (e) {
             console.warn("⚠️ Could not parse pending comments:", e);
         }
@@ -175,30 +179,28 @@ const BRIDGE_ID_OUT = "CKE_BUBBLE_MINI_V1";  // For sending TO Bubble
  * COMMENTS PERSISTENCE DOCUMENTATION
  * ============================================================
  * 
- * Comments can be persisted externally (in your database) alongside the HTML.
+ * Comments are stored locally (in Bubble) via the CommentsAdapter.
+ * The adapter intercepts all comment operations and stores them
+ * in window._commentsStore, which is synced to Bubble via CONTENT_UPDATE.
  * 
  * SAVING COMMENTS:
  * ----------------
  * When the document changes, CONTENT_UPDATE is sent with:
  * {
- *   bridge: "CKE_BUBBLE_BRIDGE_V1",
+ *   bridge: "CKE_BUBBLE_MINI_V1",
  *   type: "CONTENT_UPDATE",
  *   payload: {
  *     html: "<p>Document with <comment-start>markers</comment-end>...</p>",
  *     commentsData: [
  *       {
  *         threadId: "abc123",
- *         anchorText: "highlighted text",
- *         isResolved: false,
  *         comments: [
- *           { id: "c1", content: "Please fix this", authorId: "user1", authorName: "John", createdAt: "..." }
+ *           { id: "c1", content: "Please fix this", authorId: "user-1", createdAt: "..." }
  *         ]
  *       }
  *     ]
  *   }
  * }
- * 
- * Store both `html` and `commentsData` in your database.
  * 
  * LOADING COMMENTS:
  * -----------------
@@ -211,18 +213,6 @@ const BRIDGE_ID_OUT = "CKE_BUBBLE_MINI_V1";  // For sending TO Bubble
  *     commentsData: [ ... same format as saved ... ]
  *   }
  * }
- * 
- * The HTML contains comment markers (<comment-start>, <comment-end>).
- * The commentsData contains the actual comment content.
- * Both are needed to fully restore comments.
- * 
- * MANUAL API (from browser console or JavaScript):
- * ------------------------------------------------
- * // Extract comments for saving:
- * const data = window.extractCommentsData();
- * 
- * // Load comments from saved data:
- * window.loadCommentsData(data);
  * 
  * ============================================================
  */
@@ -260,8 +250,6 @@ function applyPendingLoad() {
             window.editor.setData(window._pendingLoadContent);
             window.suppressEditorEvents = false;
         }
-        
-        // Comments are loaded automatically by the adapter when it sees the markers
     } catch (err) {
         console.error("❌ Failed to applyPendingLoad:", err);
         return;
@@ -279,7 +267,7 @@ const LICENSE_KEY =
 const TOKEN_URL =
     'https://gww7y1r4wcsk.cke-cs.com/token/dev/f903477084613189d51e5bf1be3d077d0a7dab07d2e606571c52e58a90e0?limit=10';
 
-// WEBSOCKET_URL removed - using async comments stored in Bubble
+const WEBSOCKET_URL = "wss://gww7y1r4wcsk.cke-cs.com/ws";
 
 // Get document ID from URL parameter, or use default
 // URL format: ?docId=unique-document-id
@@ -425,6 +413,9 @@ class UsersIntegration extends Plugin {
     }
 }
 
+// --------------------------------------------------------
+// ⭐ COMMENTS ADAPTER - Stores comments locally instead of cloud
+// --------------------------------------------------------
 class CommentsIntegration extends Plugin {
     static get requires() {
         return ['CommentsRepository'];
@@ -438,108 +429,110 @@ class CommentsIntegration extends Plugin {
         const editor = this.editor;
         const commentsRepository = editor.plugins.get('CommentsRepository');
 
-        // Store for comments data (loaded from Bubble)
+        // Initialize the store
         window._commentsStore = window._commentsStore || {};
 
-        // Set up the adapter
+        console.log("🔧 Setting up CommentsAdapter...");
+
+        // Set up the adapter - this overrides cloud storage
         commentsRepository.adapter = {
             /**
              * Called when CKEditor needs comment thread data
              * This happens when HTML contains comment markers
              */
-            getCommentThread: async ({ threadId }) => {
+            getCommentThread: ({ threadId }) => {
                 console.log(`🔍 Adapter: getCommentThread(${threadId})`);
                 
                 const stored = window._commentsStore[threadId];
                 if (stored) {
                     console.log(`✅ Found stored thread: ${threadId}`, stored);
-                    return {
+                    return Promise.resolve({
                         threadId: stored.threadId,
-                        comments: stored.comments.map(c => ({
-                            commentId: c.id,
-                            authorId: c.authorId,
-                            content: c.content,
-                            createdAt: new Date(c.createdAt)
+                        comments: (stored.comments || []).map(c => ({
+                            commentId: c.id || c.commentId,
+                            authorId: c.authorId || 'user-1',
+                            content: c.content || '',
+                            createdAt: c.createdAt ? new Date(c.createdAt) : new Date()
                         })),
                         resolvedAt: stored.resolvedAt ? new Date(stored.resolvedAt) : null,
                         resolvedBy: stored.resolvedBy || null,
-                        attributes: {},
-                        isFromAdapter: true
-                    };
+                        attributes: stored.attributes || {}
+                    });
                 }
                 
                 console.log(`⚠️ Thread not found in store: ${threadId}`);
-                // Return empty thread so CKEditor doesn't crash
-                return {
-                    threadId: threadId,
-                    comments: [],
-                    isFromAdapter: true
-                };
+                // Return null to indicate thread doesn't exist
+                return Promise.resolve(null);
             },
 
             /**
              * Called when a new comment thread is created
              */
-            addCommentThread: async (data) => {
+            addCommentThread: (data) => {
                 console.log('📝 Adapter: addCommentThread', data);
                 
+                const threadId = data.threadId;
+                
                 // Store locally
-                window._commentsStore[data.threadId] = {
-                    threadId: data.threadId,
-                    comments: data.comments ? data.comments.map(c => ({
+                window._commentsStore[threadId] = {
+                    threadId: threadId,
+                    comments: (data.comments || []).map(c => ({
                         id: c.commentId,
                         content: c.content,
-                        authorId: c.authorId,
-                        authorName: c.authorId, // Will be resolved by Users plugin
+                        authorId: c.authorId || 'user-1',
+                        authorName: 'Demo User 1',
                         createdAt: c.createdAt ? c.createdAt.toISOString() : new Date().toISOString()
-                    })) : [],
+                    })),
                     isResolved: false,
                     resolvedAt: null,
-                    resolvedBy: null
+                    resolvedBy: null,
+                    attributes: data.attributes || {}
                 };
                 
                 // Trigger update to Bubble
                 triggerContentUpdate(editor);
                 
-                return {
-                    threadId: data.threadId,
+                return Promise.resolve({
+                    threadId: threadId,
                     comments: data.comments || []
-                };
+                });
             },
 
             /**
              * Called when a comment is added to existing thread
              */
-            addComment: async (data) => {
+            addComment: (data) => {
                 console.log('📝 Adapter: addComment', data);
                 
                 const thread = window._commentsStore[data.threadId];
                 if (thread) {
-                    thread.comments.push({
+                    const newComment = {
                         id: data.commentId,
                         content: data.content,
-                        authorId: data.authorId,
-                        authorName: data.authorId,
+                        authorId: data.authorId || 'user-1',
+                        authorName: 'Demo User 1',
                         createdAt: new Date().toISOString()
-                    });
+                    };
+                    thread.comments = thread.comments || [];
+                    thread.comments.push(newComment);
                 }
                 
                 // Trigger update to Bubble
                 triggerContentUpdate(editor);
                 
-                return {
+                return Promise.resolve({
                     createdAt: new Date()
-                };
+                });
             },
 
             /**
              * Called when a comment is updated
              */
-            updateComment: async (data) => {
+            updateComment: (data) => {
                 console.log('📝 Adapter: updateComment', data);
                 
                 const thread = window._commentsStore[data.threadId];
-                if (thread) {
+                if (thread && thread.comments) {
                     const comment = thread.comments.find(c => c.id === data.commentId);
                     if (comment && data.content !== undefined) {
                         comment.content = data.content;
@@ -549,30 +542,30 @@ class CommentsIntegration extends Plugin {
                 // Trigger update to Bubble
                 triggerContentUpdate(editor);
                 
-                return {};
+                return Promise.resolve();
             },
 
             /**
              * Called when a comment is removed
              */
-            removeComment: async (data) => {
+            removeComment: (data) => {
                 console.log('📝 Adapter: removeComment', data);
                 
                 const thread = window._commentsStore[data.threadId];
-                if (thread) {
+                if (thread && thread.comments) {
                     thread.comments = thread.comments.filter(c => c.id !== data.commentId);
                 }
                 
                 // Trigger update to Bubble
                 triggerContentUpdate(editor);
                 
-                return {};
+                return Promise.resolve();
             },
 
             /**
              * Called when a thread is removed
              */
-            removeCommentThread: async (data) => {
+            removeCommentThread: (data) => {
                 console.log('📝 Adapter: removeCommentThread', data);
                 
                 delete window._commentsStore[data.threadId];
@@ -580,35 +573,35 @@ class CommentsIntegration extends Plugin {
                 // Trigger update to Bubble
                 triggerContentUpdate(editor);
                 
-                return {};
+                return Promise.resolve();
             },
 
             /**
              * Called when a thread is resolved
              */
-            resolveCommentThread: async (data) => {
+            resolveCommentThread: (data) => {
                 console.log('📝 Adapter: resolveCommentThread', data);
                 
                 const thread = window._commentsStore[data.threadId];
                 if (thread) {
                     thread.isResolved = true;
                     thread.resolvedAt = new Date().toISOString();
-                    thread.resolvedBy = 'user-1'; // Current user
+                    thread.resolvedBy = 'user-1';
                 }
                 
                 // Trigger update to Bubble
                 triggerContentUpdate(editor);
                 
-                return {
+                return Promise.resolve({
                     resolvedAt: new Date(),
                     resolvedBy: 'user-1'
-                };
+                });
             },
 
             /**
              * Called when a resolved thread is reopened
              */
-            reopenCommentThread: async (data) => {
+            reopenCommentThread: (data) => {
                 console.log('📝 Adapter: reopenCommentThread', data);
                 
                 const thread = window._commentsStore[data.threadId];
@@ -621,11 +614,28 @@ class CommentsIntegration extends Plugin {
                 // Trigger update to Bubble
                 triggerContentUpdate(editor);
                 
-                return {};
+                return Promise.resolve();
+            },
+
+            /**
+             * Called to update thread attributes
+             */
+            updateCommentThread: (data) => {
+                console.log('📝 Adapter: updateCommentThread', data);
+                
+                const thread = window._commentsStore[data.threadId];
+                if (thread && data.attributes) {
+                    thread.attributes = { ...thread.attributes, ...data.attributes };
+                }
+                
+                // Trigger update to Bubble
+                triggerContentUpdate(editor);
+                
+                return Promise.resolve();
             }
         };
 
-        console.log('✅ CommentsAdapter configured');
+        console.log('✅ CommentsAdapter configured - comments will be stored locally');
     }
 }
 
@@ -644,7 +654,7 @@ function triggerContentUpdate(editor) {
                 commentsData: commentsData
             });
             
-            console.log(`🟧 CONTENT_UPDATE (from adapter): ${commentsData.length} comments`);
+            console.log(`🟧 CONTENT_UPDATE (from adapter): ${html.slice(0, 80)}... (${commentsData.length} comments)`);
         }
     }, 100);
 }
@@ -728,7 +738,7 @@ function normalizeThreadComments(thread) {
 }
 
 // --------------------------------------------------------
-// COMMENTS PERSISTENCE - Extract & Load
+// COMMENTS PERSISTENCE - Extract for external use
 // --------------------------------------------------------
 
 /**
@@ -736,217 +746,10 @@ function normalizeThreadComments(thread) {
  * Returns an array of thread objects that can be JSON.stringify'd
  */
 function extractCommentsData(editor) {
-    const repo = getCommentsRepository(editor);
-    if (!repo) {
-        console.warn("⚠️ CommentsRepository not available for extraction");
-        return [];
-    }
-
-    const threads = extractThreadsFromRepository(repo);
-    const commentsData = [];
-    
-    // Build a map of marker names for quick lookup
-    const markerMap = new Map();
-    try {
-        for (const marker of editor.model.markers) {
-            const name = marker.name || '';
-            if (name.startsWith('comment:')) {
-                // Extract the ID part after 'comment:'
-                const markerId = name.substring(8); // Remove 'comment:' prefix
-                markerMap.set(markerId, marker);
-                // Also map the base ID (without suffix) to the full marker
-                const baseId = markerId.split(':')[0];
-                if (!markerMap.has(baseId)) {
-                    markerMap.set(baseId, marker);
-                }
-                console.log(`🔍 Found marker: ${name} (baseId: ${baseId})`);
-            }
-        }
-    } catch (err) {
-        console.warn("⚠️ Error building marker map:", err);
-    }
-
-    for (const thread of threads) {
-        const repoThreadId = thread.id || thread.threadId;
-        if (!repoThreadId) continue;
-        
-        // Find the actual marker name for this thread
-        // The marker might have a suffix like :9575c
-        let actualThreadId = repoThreadId;
-        let marker = markerMap.get(repoThreadId);
-        
-        if (marker) {
-            // Get the full marker name (without 'comment:' prefix)
-            actualThreadId = marker.name.substring(8);
-            console.log(`🔍 Thread ${repoThreadId} -> marker ID: ${actualThreadId}`);
-        } else {
-            // Try to find marker by searching
-            for (const [markerId, m] of markerMap) {
-                if (markerId.startsWith(repoThreadId) || repoThreadId.startsWith(markerId.split(':')[0])) {
-                    marker = m;
-                    actualThreadId = markerId;
-                    console.log(`🔍 Thread ${repoThreadId} matched to marker: ${actualThreadId}`);
-                    break;
-                }
-            }
-        }
-
-        // Check resolved status
-        const isResolved =
-            typeof thread.isResolved === "boolean"
-                ? thread.isResolved
-                : thread.resolvedAt != null
-                ? true
-                : typeof thread.getAttribute === "function"
-                ? !!thread.getAttribute("resolved")
-                : false;
-
-        // Extract comments from this thread
-        const comments = normalizeThreadComments(thread);
-        const commentsArray = [];
-
-        for (const comment of comments) {
-            const commentData = {
-                id: comment.id || comment.commentId || null,
-                content: safeString(
-                    comment.content || 
-                    comment.text || 
-                    comment.body || 
-                    comment.message || 
-                    comment.data?.content ||
-                    comment.data?.text ||
-                    ""
-                ),
-                authorId: comment.author?.id || comment.authorId || null,
-                authorName: comment.author?.name || comment.authorName || null,
-                createdAt: comment.createdAt || comment.date || null
-            };
-            commentsArray.push(commentData);
-        }
-
-        // Get anchor text (highlighted text) from the marker we already found
-        let anchorText = "";
-        try {
-            if (marker) {
-                const range = marker.getRange();
-                let text = "";
-                for (const item of range.getItems()) {
-                    if (item.is('$text') || item.is('$textProxy')) {
-                        text += item.data;
-                    }
-                }
-                anchorText = text.trim();
-                console.log(`🔍 Anchor text for ${actualThreadId}: "${anchorText}"`);
-            } else {
-                console.log(`⚠️ No marker found for thread: ${actualThreadId}`);
-            }
-            
-            // Fallback: try to get from thread's context if available
-            if (!anchorText && thread.context) {
-                anchorText = safeString(thread.context);
-                if (anchorText) {
-                    console.log(`🔍 Got anchor text from thread.context: "${anchorText}"`);
-                }
-            }
-        } catch (err) {
-            console.warn(`⚠️ Error getting anchor text for ${actualThreadId}:`, err);
-        }
-
-        commentsData.push({
-            threadId: actualThreadId,
-            anchorText: anchorText,
-            isResolved: isResolved,
-            resolvedAt: thread.resolvedAt || null,
-            resolvedBy: thread.resolvedBy || null,
-            comments: commentsArray
-        });
-    }
-
-    console.log(`📤 Extracted ${commentsData.length} comment thread(s) for storage`);
+    // Use the local store directly since that's our source of truth
+    const commentsData = Object.values(window._commentsStore || {});
+    console.log(`📤 Extracted ${commentsData.length} comment thread(s) from store`);
     return commentsData;
-}
-
-/**
- * Load comments data from external storage
- * @param {Editor} editor - CKEditor instance
- * @param {Array} commentsData - Array of thread objects from extractCommentsData
- */
-async function loadCommentsData(editor, commentsData) {
-    if (!commentsData || !Array.isArray(commentsData) || commentsData.length === 0) {
-        console.log("ℹ️ No comments data to load");
-        return;
-    }
-
-    const repo = getCommentsRepository(editor);
-    if (!repo) {
-        console.warn("⚠️ CommentsRepository not available for loading");
-        return;
-    }
-
-    console.log(`📥 Loading ${commentsData.length} comment thread(s) from storage`);
-
-    for (const threadData of commentsData) {
-        try {
-            const { threadId, isResolved, comments } = threadData;
-            
-            if (!threadId || !comments || comments.length === 0) {
-                console.warn("⚠️ Skipping invalid thread data:", threadData);
-                continue;
-            }
-
-            // Check if thread already exists (from HTML markers)
-            let thread = null;
-            try {
-                thread = repo.getCommentThread ? repo.getCommentThread(threadId) : null;
-            } catch (e) {}
-
-            if (thread) {
-                // Thread exists from HTML markers - add comments if missing
-                const existingComments = normalizeThreadComments(thread);
-                
-                if (existingComments.length === 0) {
-                    // Add comments to existing thread
-                    for (const commentData of comments) {
-                        try {
-                            if (typeof thread.addComment === 'function') {
-                                thread.addComment({
-                                    content: commentData.content,
-                                    authorId: commentData.authorId
-                                });
-                            } else if (typeof repo.addComment === 'function') {
-                                repo.addComment(threadId, {
-                                    content: commentData.content,
-                                    authorId: commentData.authorId
-                                });
-                            }
-                        } catch (e) {
-                            console.warn(`⚠️ Could not add comment to thread ${threadId}:`, e);
-                        }
-                    }
-                }
-
-                // Set resolved status
-                if (isResolved) {
-                    try {
-                        if (typeof thread.resolve === 'function') {
-                            thread.resolve();
-                        } else if ('isResolved' in thread) {
-                            thread.isResolved = true;
-                        }
-                    } catch (e) {}
-                }
-
-                console.log(`✅ Updated existing thread: ${threadId}`);
-            } else {
-                // Thread doesn't exist - might be orphaned or marker missing
-                console.warn(`⚠️ Thread ${threadId} has no marker in document - skipping`);
-            }
-        } catch (err) {
-            console.error(`❌ Failed to load thread:`, err);
-        }
-    }
-
-    console.log("✅ Comments data loaded");
 }
 
 // Make functions available globally for Bubble
@@ -954,18 +757,20 @@ window.extractCommentsData = function() {
     if (window.editor) {
         return extractCommentsData(window.editor);
     }
-    return [];
+    return Object.values(window._commentsStore || {});
 };
 
 window.loadCommentsData = function(data) {
-    if (window.editor) {
-        return loadCommentsData(window.editor, data);
-    }
+    if (!data || !Array.isArray(data)) return;
+    window._commentsStore = window._commentsStore || {};
+    data.forEach(thread => {
+        window._commentsStore[thread.threadId] = thread;
+    });
+    console.log(`📥 Loaded ${data.length} threads into store`);
 };
 
 function formatCommentsForAI(editor) {
-    const repo = getCommentsRepository(editor);
-    const threads = extractThreadsFromRepository(repo);
+    const threads = Object.values(window._commentsStore || {});
 
     console.log("🔍 Total threads found:", threads.length);
 
@@ -976,17 +781,8 @@ function formatCommentsForAI(editor) {
     let skippedResolved = 0;
 
     for (const thread of threads) {
-        // Check if resolved
-        const isResolved =
-            typeof thread.isResolved === "boolean"
-                ? thread.isResolved
-                : thread.resolvedAt != null
-                ? true
-                : typeof thread.getAttribute === "function"
-                ? !!thread.getAttribute("resolved")
-                : false;
-
-        const threadId = thread.id || thread.threadId;
+        const isResolved = thread.isResolved === true;
+        const threadId = thread.threadId;
 
         if (isResolved) {
             skippedResolved++;
@@ -994,29 +790,16 @@ function formatCommentsForAI(editor) {
             continue;
         }
 
-        // Extract comments
-        const comments = normalizeThreadComments(thread);
+        const comments = thread.comments || [];
         const commentLines = [];
 
         for (const c of comments) {
-            let content = safeString(
-                c.content || 
-                c.text || 
-                c.body || 
-                c.message || 
-                c.data?.content ||
-                c.data?.text ||
-                ""
-            );
-
-            // Strip HTML tags
+            let content = safeString(c.content || "");
             content = content.replace(/<[^>]*>/g, '').replace(/\s+/g, " ").trim();
-
             if (!content) continue;
             commentLines.push(content);
         }
 
-        // Only include threads with actual comments
         if (commentLines.length === 0) {
             console.warn(`⚠️ Thread ${threadId} has no readable comments, skipping`);
             continue;
@@ -1025,27 +808,28 @@ function formatCommentsForAI(editor) {
         idx += 1;
 
         // Try to get the highlighted text for this thread
-        let highlightedText = "";
-        try {
-            const model = editor.model;
-            const markerName = `comment:${threadId}`;
-            const marker = model.markers.get(markerName);
-            
-            if (marker) {
-                const range = marker.getRange();
-                let text = "";
-                for (const item of range.getItems()) {
-                    if (item.is('$text') || item.is('$textProxy')) {
-                        text += item.data;
+        let highlightedText = thread.anchorText || "";
+        if (!highlightedText && editor) {
+            try {
+                const model = editor.model;
+                const markerName = `comment:${threadId}`;
+                const marker = model.markers.get(markerName);
+                
+                if (marker) {
+                    const range = marker.getRange();
+                    let text = "";
+                    for (const item of range.getItems()) {
+                        if (item.is('$text') || item.is('$textProxy')) {
+                            text += item.data;
+                        }
                     }
+                    highlightedText = text.trim();
                 }
-                highlightedText = text.trim();
+            } catch (err) {
+                // Silently ignore
             }
-        } catch (err) {
-            // Silently ignore - highlighted text is optional
         }
 
-        // Format with thread ID and highlighted text
         if (highlightedText) {
             lines.push(`${idx}. [Thread: ${threadId}] Anchor: "${highlightedText}" → ${commentLines.join('; ')}`);
         } else {
@@ -1097,30 +881,18 @@ function findAIChatComposer(aiRoot) {
 async function handleFixWithAI(editor, threadId) {
     console.log("🟦 Fix with AI triggered for thread:", threadId);
     
-    const repo = getCommentsRepository(editor);
-    if (!repo) return;
-    
-    let thread = null;
-    try {
-        thread = repo.getCommentThread ? repo.getCommentThread(threadId) : null;
-    } catch (err) {
-        console.warn("⚠️ Could not get thread:", err);
-    }
-    
+    const thread = window._commentsStore[threadId];
     if (!thread) {
-        console.warn("⚠️ Thread not found");
+        console.warn("⚠️ Thread not found in store");
         return;
     }
     
     // Extract comment text
-    const comments = normalizeThreadComments(thread);
+    const comments = thread.comments || [];
     const commentLines = [];
     
     for (const c of comments) {
-        let content = safeString(
-            c.content || c.text || c.body || c.message || 
-            c.data?.content || c.data?.text || ""
-        );
+        let content = safeString(c.content || "");
         content = content.replace(/<[^>]*>/g, '').replace(/\s+/g, " ").trim();
         if (!content) continue;
         commentLines.push(content);
@@ -1133,35 +905,33 @@ async function handleFixWithAI(editor, threadId) {
     
     const commentText = commentLines.join('; ');
     
-    // Get the highlighted text (the text the comment refers to)
-    let highlightedText = "";
-    try {
-        // Get the marker from the document model
-        const model = editor.model;
-        const markerName = `comment:${threadId}`;
-        const marker = model.markers.get(markerName);
-        
-        if (marker) {
-            const range = marker.getRange();
-            // Extract text from the range
-            let text = "";
-            for (const item of range.getItems()) {
-                if (item.is('$text') || item.is('$textProxy')) {
-                    text += item.data;
+    // Get the highlighted text
+    let highlightedText = thread.anchorText || "";
+    if (!highlightedText) {
+        try {
+            const model = editor.model;
+            const markerName = `comment:${threadId}`;
+            const marker = model.markers.get(markerName);
+            
+            if (marker) {
+                const range = marker.getRange();
+                let text = "";
+                for (const item of range.getItems()) {
+                    if (item.is('$text') || item.is('$textProxy')) {
+                        text += item.data;
+                    }
                 }
+                highlightedText = text.trim();
+                console.log("🟦 Highlighted text:", highlightedText);
             }
-            highlightedText = text.trim();
-            console.log("🟦 Highlighted text:", highlightedText);
-        } else {
-            console.warn("⚠️ Could not find marker for thread");
+        } catch (err) {
+            console.warn("⚠️ Error getting highlighted text:", err);
         }
-    } catch (err) {
-        console.warn("⚠️ Error getting highlighted text:", err);
     }
     
     window._singleThreadToResolve = threadId;
     
-    // Build a more structured prompt with thread ID for precise location
+    // Build prompt
     let prompt;
     if (highlightedText) {
         prompt = `Address this document comment:
@@ -1241,9 +1011,6 @@ Rules:
 // --------------------------------------------------------
 // 🧩 CUSTOM COMMENT THREAD VIEW with "Fix with AI" action
 // --------------------------------------------------------
-// --------------------------------------------------------
-// 🧩 CUSTOM COMMENT THREAD VIEW - with Fix with AI dropdown
-// --------------------------------------------------------
 class CustomCommentThreadView extends BaseCommentThreadView {
     constructor(...args) {
         super(...args);
@@ -1253,8 +1020,6 @@ class CustomCommentThreadView extends BaseCommentThreadView {
         console.log("🟦 CustomCommentThreadView constructor called");
         console.log("🟦 Thread length:", this.length);
 
-        // The template definition based on the default comment thread view
-        // We'll add a placeholder for the dropdown that gets populated later
         this.setTemplate({
             tag: 'div',
 
@@ -1273,7 +1038,6 @@ class CustomCommentThreadView extends BaseCommentThreadView {
             },
 
             children: [
-                // Placeholder for dropdown - will be populated when comments exist
                 {
                     tag: 'div',
                     attributes: {
@@ -1293,23 +1057,19 @@ class CustomCommentThreadView extends BaseCommentThreadView {
             ]
         });
 
-        // Add dropdown after render if comments exist
         this.on('render', () => {
             if (this.length > 0) {
                 this._injectDropdown();
             }
         });
 
-        // Add dropdown when first comment is added
         this.listenTo(this.commentsListView.commentViews, 'add', () => {
             console.log("🟦 Comment added to thread, length now:", this.length);
             this._injectDropdown();
             this._modifyFirstCommentView();
         });
 
-        // Modify first comment view if comments exist
         if (this.length > 0) {
-            // Need to wait for render
             this.on('render', () => {
                 this._modifyFirstCommentView();
             });
@@ -1319,7 +1079,6 @@ class CustomCommentThreadView extends BaseCommentThreadView {
     _injectDropdown() {
         if (!this.element) return;
         
-        // Check if already injected
         if (this.element.querySelector('.ck-thread-top-bar')) {
             return;
         }
@@ -1327,19 +1086,15 @@ class CustomCommentThreadView extends BaseCommentThreadView {
         const placeholder = this.element.querySelector('.ck-thread-top-bar-placeholder');
         if (!placeholder) return;
         
-        // Create the dropdown
         const dropdown = this._createActionsDropdown();
         if (!dropdown) return;
         
-        // Render the dropdown
         dropdown.render();
         
-        // Create the top bar wrapper
         const topBar = document.createElement('div');
         topBar.className = 'ck-thread-top-bar';
         topBar.appendChild(dropdown.element);
         
-        // Replace placeholder with top bar
         placeholder.replaceWith(topBar);
         
         console.log("✅ Dropdown injected into thread");
@@ -1347,12 +1102,7 @@ class CustomCommentThreadView extends BaseCommentThreadView {
 
     _createActionsDropdown() {
         if (!createDropdown || !ListView || !ListItemView || !ButtonView) {
-            console.error("❌ Missing UI classes:", {
-                createDropdown: !!createDropdown,
-                ListView: !!ListView,
-                ListItemView: !!ListItemView,
-                ButtonView: !!ButtonView
-            });
+            console.error("❌ Missing UI classes");
             return null;
         }
 
@@ -1364,10 +1114,9 @@ class CustomCommentThreadView extends BaseCommentThreadView {
             tooltip: true
         });
 
-        // Create list view for dropdown items
         const listView = new ListView(this.locale);
         
-        // Create Fix with AI button
+        // Fix with AI button
         const fixWithAIItem = new ListItemView(this.locale);
         const fixWithAIButton = new ButtonView(this.locale);
         fixWithAIButton.set({
@@ -1385,7 +1134,7 @@ class CustomCommentThreadView extends BaseCommentThreadView {
         fixWithAIItem.children.add(fixWithAIButton);
         listView.items.add(fixWithAIItem);
 
-        // Create Edit button
+        // Edit button
         const editItem = new ListItemView(this.locale);
         const editButton = new ButtonView(this.locale);
         editButton.set({
@@ -1402,7 +1151,7 @@ class CustomCommentThreadView extends BaseCommentThreadView {
         editItem.children.add(editButton);
         listView.items.add(editItem);
 
-        // Create Resolve button
+        // Resolve button
         const resolveItem = new ListItemView(this.locale);
         const resolveButton = new ButtonView(this.locale);
         resolveButton.set({
@@ -1416,7 +1165,7 @@ class CustomCommentThreadView extends BaseCommentThreadView {
         resolveItem.children.add(resolveButton);
         listView.items.add(resolveItem);
 
-        // Create Delete button
+        // Delete button
         const deleteItem = new ListItemView(this.locale);
         const deleteButton = new ButtonView(this.locale);
         deleteButton.set({
@@ -1440,7 +1189,6 @@ class CustomCommentThreadView extends BaseCommentThreadView {
         const commentView = this.commentsListView.commentViews.get(0);
         if (!commentView) return;
 
-        // Hide the default edit/remove buttons since we have them in dropdown
         if (commentView.removeButton) {
             commentView.removeButton.unbind('isVisible');
             commentView.removeButton.isVisible = false;
@@ -1490,18 +1238,11 @@ class SolveAllCommentsCommandPlugin extends Plugin {
 
         console.log("📋 Comments context extracted:", commentsContext);
 
-        // Store the thread IDs we're solving so we can resolve them later
-        const repo = getCommentsRepository(editor);
-        const threads = extractThreadsFromRepository(repo);
+        // Store the thread IDs we're solving
+        const threads = Object.values(window._commentsStore || {});
         const openThreadIds = threads
-            .filter(t => {
-                const isResolved = 
-                    typeof t.isResolved === "boolean" ? t.isResolved :
-                    t.resolvedAt != null ? true :
-                    typeof t.getAttribute === "function" ? !!t.getAttribute("resolved") : false;
-                return !isResolved;
-            })
-            .map(t => t.id || t.threadId);
+            .filter(t => !t.isResolved)
+            .map(t => t.threadId);
 
         console.log("📋 Open thread IDs to resolve after AI applies changes:", openThreadIds);
         
@@ -1578,16 +1319,9 @@ Rules:
                 sendButton.click();
                 console.log("🟩 AI chat prompt sent successfully");
             } else if (sendButton && sendButton.disabled) {
-                console.warn("⚠️ Send button is disabled - waiting for it to enable");
-                await new Promise(resolve => setTimeout(resolve, 500));
-                if (!sendButton.disabled) {
-                    sendButton.click();
-                    console.log("🟩 AI chat prompt sent successfully (after wait)");
-                } else {
-                    console.warn("⚠️ Send button still disabled - user needs to click send manually");
-                }
+                console.warn("⚠️ Send button is disabled");
             } else {
-                console.warn("⚠️ Could not find send button - user needs to click send manually");
+                console.warn("⚠️ Could not find send button");
             }
 
         } catch (e) {
@@ -1597,7 +1331,7 @@ Rules:
 }
 
 // --------------------------------------------------------
-// AI CHAT COMMENTS INJECTION (only when user types "comment")
+// AI CHAT COMMENTS INJECTION
 // --------------------------------------------------------
 const FV_COMMENTS_CONTEXT_START = "<!--FV_COMMENTS_CONTEXT_START-->";
 const FV_COMMENTS_CONTEXT_END = "<!--FV_COMMENTS_CONTEXT_END-->";
@@ -1630,25 +1364,21 @@ function buildInjectedCommentsBlock(editor) {
 function injectCommentsIntoComposer(editor, aiRoot) {
     try {
         if (window._skipNextCommentsInjection) {
-            console.log("🟪 Skipping comments injection (solve-all-comments action)");
+            console.log("🟪 Skipping comments injection");
             window._skipNextCommentsInjection = false;
             return true;
         }
         
         const composer = findAIChatComposer(aiRoot);
-        if (!composer) {
-            console.warn("⚠️ AI chat input not found; cannot inject comments");
-            return false;
-        }
+        if (!composer) return false;
 
         const current =
             composer.kind === "textarea"
                 ? safeString(composer.el.value)
                 : safeString(composer.el.textContent || "");
 
-        // Only inject if user mentions "comments" in their prompt
         if (!current.toLowerCase().includes('comment')) {
-            console.log("🟪 No 'comment' keyword found - skipping comments injection");
+            console.log("🟪 No 'comment' keyword found - skipping injection");
             return false;
         }
 
@@ -1661,10 +1391,10 @@ function injectCommentsIntoComposer(editor, aiRoot) {
             composer.el.textContent = injected;
         }
 
-        console.log("🟪 Injected comments context into AI chat input (user mentioned 'comment')");
+        console.log("🟪 Injected comments context");
         return true;
     } catch (e) {
-        console.warn("⚠️ Failed injecting comments into AI chat:", e);
+        console.warn("⚠️ Failed injecting comments:", e);
         return false;
     }
 }
@@ -1676,55 +1406,27 @@ function tryBindAIChatSubmitInjection(editor) {
     if (aiRoot.__fvCommentsInjectionBound) return true;
     aiRoot.__fvCommentsInjectionBound = true;
 
-    console.log("🟪 Bound AI chat events → will inject comments context when user mentions 'comment'");
+    console.log("🟪 Bound AI chat events");
 
     const form = aiRoot.querySelector("form");
     if (form) {
-        form.addEventListener(
-            "submit",
-            () => {
-                console.log("🟪 AI chat submit detected");
-                injectCommentsIntoComposer(editor, aiRoot);
-            },
-            true
-        );
+        form.addEventListener("submit", () => injectCommentsIntoComposer(editor, aiRoot), true);
     }
 
-    aiRoot.addEventListener(
-        "keydown",
-        (e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-                console.log("🟪 AI chat Enter detected");
-                injectCommentsIntoComposer(editor, aiRoot);
-            }
-        },
-        true
-    );
+    aiRoot.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            injectCommentsIntoComposer(editor, aiRoot);
+        }
+    }, true);
 
-    aiRoot.addEventListener(
-        "click",
-        (e) => {
-            const t = e.target;
-            if (!t) return;
-
-            const btn = t.closest && t.closest("button");
-            if (!btn) return;
-
-            const label = (btn.getAttribute("aria-label") || btn.title || btn.textContent || "").toLowerCase();
-
-            const looksLikeSend =
-                label.includes("send") ||
-                label.includes("submit") ||
-                label.includes("enter") ||
-                btn.type === "submit";
-
-            if (looksLikeSend) {
-                console.log("🟪 AI chat send-click detected");
-                injectCommentsIntoComposer(editor, aiRoot);
-            }
-        },
-        true
-    );
+    aiRoot.addEventListener("click", (e) => {
+        const btn = e.target?.closest?.("button");
+        if (!btn) return;
+        const label = (btn.getAttribute("aria-label") || btn.title || btn.textContent || "").toLowerCase();
+        if (label.includes("send") || label.includes("submit") || btn.type === "submit") {
+            injectCommentsIntoComposer(editor, aiRoot);
+        }
+    }, true);
 
     return true;
 }
@@ -1741,9 +1443,7 @@ function enableAIChatCommentsInjection(editor) {
     observer.observe(document.body, { childList: true, subtree: true });
 
     setTimeout(() => {
-        try {
-            observer.disconnect();
-        } catch (e) {}
+        try { observer.disconnect(); } catch (e) {}
     }, 60000);
 }
 
@@ -1926,13 +1626,14 @@ const editorConfig = {
     ],
 
     cloudServices: {
-        tokenUrl: TOKEN_URL
-        // webSocketUrl removed - using async comments stored in Bubble
+        tokenUrl: TOKEN_URL,
+        webSocketUrl: WEBSOCKET_URL
     },
 
-    // collaboration config removed - not needed for async comments
+    collaboration: {
+        channelId: DOCUMENT_ID
+    },
 
-    // ⭐ USE CUSTOM COMMENT THREAD VIEW
     comments: {
         CommentThreadView: CustomCommentThreadView,
         editorConfig: {
@@ -2068,13 +1769,11 @@ DecoupledEditor.create(document.querySelector("#editor"), editorConfig)
         const cmd = editor.commands.get("fv-solve-all-comments");
         if (cmd) {
             console.log("✅ fv-solve-all-comments command verified:", cmd);
-        } else {
-            console.log("ℹ️ Command not found (expected for ACTION type quick actions)");
         }
 
         applyPendingLoad();
 
-        // CLOSE AI panel on initial load
+        // Close AI panel on initial load
         try {
             const aiChat = editor.plugins.get("AIChat");
 
@@ -2097,10 +1796,7 @@ DecoupledEditor.create(document.querySelector("#editor"), editorConfig)
             };
 
             forceHidePanel();
-
-            setTimeout(() => {
-                forceHidePanel();
-            }, 100);
+            setTimeout(() => forceHidePanel(), 100);
 
             editor.editing.view.once("render", () => {
                 forceHidePanel();
@@ -2116,19 +1812,16 @@ DecoupledEditor.create(document.querySelector("#editor"), editorConfig)
             console.warn("⚠️ Could not hide AI panel:", e);
         }
 
-        // ⭐ Listen for solve-all-comments action clicks and trigger our logic
+        // Listen for solve-all-comments clicks
         try {
             document.addEventListener('click', (e) => {
-                const target = e.target;
-                if (!target) return;
-                
-                const button = target.closest('button');
+                const button = e.target?.closest('button');
                 if (!button) return;
                 
                 const text = button.textContent || button.getAttribute('aria-label') || '';
                 
                 if (text.toLowerCase().includes('solve all comments')) {
-                    console.log("🟦 Solve all comments button clicked - intercepting");
+                    console.log("🟦 Solve all comments button clicked");
                     
                     e.preventDefault();
                     e.stopPropagation();
@@ -2156,13 +1849,10 @@ DecoupledEditor.create(document.querySelector("#editor"), editorConfig)
             console.warn("⚠️ Could not enable AI chat comments injection:", e);
         }
 
-        // ⭐ Listen for "Apply all changes" / "Accept" and auto-resolve comments
+        // Auto-resolve comments after AI applies changes
         try {
             document.addEventListener('click', async (e) => {
-                const target = e.target;
-                if (!target) return;
-                
-                const button = target.closest('button');
+                const button = e.target?.closest('button');
                 if (!button) return;
                 
                 const text = (button.textContent || '').toLowerCase().trim();
@@ -2170,7 +1860,6 @@ DecoupledEditor.create(document.querySelector("#editor"), editorConfig)
                 const title = (button.title || '').toLowerCase();
                 const allText = `${text} ${ariaLabel} ${title}`;
                 
-                // Detect various "apply/accept" button patterns
                 const isApplyButton = 
                     allText.includes('apply all') ||
                     allText.includes('apply change') ||
@@ -2178,23 +1867,14 @@ DecoupledEditor.create(document.querySelector("#editor"), editorConfig)
                     allText.includes('accept change') ||
                     (allText.includes('apply') && !allText.includes('cancel')) ||
                     (allText.includes('accept') && !allText.includes('cancel')) ||
-                    // CKEditor specific patterns
                     button.classList.contains('ck-ai-apply-button') ||
                     button.closest('.ck-ai-form__actions')?.contains(button);
                 
                 if (isApplyButton) {
                     console.log("🟦 Detected apply/accept button click:", text || ariaLabel);
                     
-                    // Wait for changes to be applied
                     await new Promise(resolve => setTimeout(resolve, 1500));
                     
-                    const repo = getCommentsRepository(editor);
-                    if (!repo) {
-                        console.warn("⚠️ CommentsRepository not available");
-                        return;
-                    }
-                    
-                    // Check if we're resolving a single thread or multiple
                     let threadsToResolve = [];
                     if (window._singleThreadToResolve) {
                         threadsToResolve = [window._singleThreadToResolve];
@@ -2212,52 +1892,35 @@ DecoupledEditor.create(document.querySelector("#editor"), editorConfig)
                     }
                     
                     let resolved = 0;
+                    const repo = getCommentsRepository(editor);
+                    
                     for (const threadId of threadsToResolve) {
                         try {
-                            const thread = repo.getCommentThread ? repo.getCommentThread(threadId) : null;
-                            
-                            if (thread) {
-                                // Try resolve() method first
-                                if (typeof thread.resolve === 'function') {
-                                    thread.resolve();
-                                    resolved++;
-                                    console.log(`✅ Resolved thread ${threadId} via resolve()`);
-                                    continue;
-                                }
-                                
-                                // Try isResolved property
-                                if ('isResolved' in thread) {
-                                    thread.isResolved = true;
-                                    resolved++;
-                                    console.log(`✅ Resolved thread ${threadId} via isResolved`);
-                                    continue;
-                                }
-                                
-                                // Try setAttribute
-                                if (typeof thread.setAttribute === 'function') {
-                                    thread.setAttribute('resolved', true);
-                                    thread.setAttribute('resolvedAt', new Date().toISOString());
-                                    resolved++;
-                                    console.log(`✅ Resolved thread ${threadId} via setAttribute`);
-                                    continue;
-                                }
-                            }
-                            
-                            // Try repository method
-                            if (typeof repo.resolveCommentThread === 'function') {
-                                repo.resolveCommentThread(threadId);
+                            // Update the store
+                            if (window._commentsStore[threadId]) {
+                                window._commentsStore[threadId].isResolved = true;
+                                window._commentsStore[threadId].resolvedAt = new Date().toISOString();
+                                window._commentsStore[threadId].resolvedBy = 'user-1';
                                 resolved++;
-                                console.log(`✅ Resolved thread ${threadId} via repo.resolveCommentThread`);
-                                continue;
+                                console.log(`✅ Resolved thread ${threadId} in store`);
                             }
                             
-                            console.warn(`⚠️ Could not find resolve method for thread ${threadId}`);
+                            // Also try to resolve via repository
+                            if (repo) {
+                                const thread = repo.getCommentThread ? repo.getCommentThread(threadId) : null;
+                                if (thread && typeof thread.resolve === 'function') {
+                                    thread.resolve();
+                                }
+                            }
                         } catch (err) {
                             console.warn(`⚠️ Failed to resolve thread ${threadId}:`, err);
                         }
                     }
                     
                     console.log(`🟩 Resolved ${resolved}/${threadsToResolve.length} comment thread(s)`);
+                    
+                    // Trigger update to Bubble
+                    triggerContentUpdate(editor);
                 }
             }, true);
             
@@ -2273,7 +1936,7 @@ DecoupledEditor.create(document.querySelector("#editor"), editorConfig)
             if (window.suppressEditorEvents) return;
 
             const html = editor.getData();
-            const commentsData = extractCommentsData(editor);
+            const commentsData = Object.values(window._commentsStore || {});
             
             console.log("🟧 CONTENT_UPDATE:", html.slice(0, 120), `(${commentsData.length} comments)`);
             window.sendToParent("CONTENT_UPDATE", { 
