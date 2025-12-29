@@ -443,11 +443,41 @@ class CommentsIntegration extends Plugin {
             getCommentThread: ({ threadId }) => {
                 console.log(`🔍 Adapter: getCommentThread(${threadId})`);
                 
-                const stored = window._commentsStore[threadId];
+                // Try exact match first
+                let stored = window._commentsStore[threadId];
+                
+                // If not found, try flexible matching
+                if (!stored) {
+                    // CKEditor might ask for base ID, but we stored with suffix
+                    // Or vice versa
+                    for (const key of Object.keys(window._commentsStore)) {
+                        // Check if stored key starts with requested ID
+                        if (key.startsWith(threadId + ':') || key.startsWith(threadId)) {
+                            stored = window._commentsStore[key];
+                            console.log(`🔍 Flexible match: ${threadId} → ${key}`);
+                            break;
+                        }
+                        // Check if requested ID starts with stored key
+                        if (threadId.startsWith(key + ':') || threadId.startsWith(key)) {
+                            stored = window._commentsStore[key];
+                            console.log(`🔍 Flexible match: ${threadId} → ${key}`);
+                            break;
+                        }
+                        // Check base ID match (everything before first colon)
+                        const storedBase = key.split(':')[0];
+                        const requestedBase = threadId.split(':')[0];
+                        if (storedBase === requestedBase) {
+                            stored = window._commentsStore[key];
+                            console.log(`🔍 Base ID match: ${threadId} → ${key}`);
+                            break;
+                        }
+                    }
+                }
+                
                 if (stored) {
                     console.log(`✅ Found stored thread: ${threadId}`, stored);
                     return Promise.resolve({
-                        threadId: stored.threadId,
+                        threadId: threadId, // Return the ID that was requested
                         comments: (stored.comments || []).map(c => ({
                             commentId: c.id || c.commentId,
                             authorId: c.authorId || 'user-1',
