@@ -503,9 +503,47 @@ class CommentsIntegration extends Plugin {
                 
                 const threadId = data.threadId;
                 
+                // ⭐ Extract anchor text from the marker
+                let anchorText = "";
+                try {
+                    let marker = null;
+                    
+                    // Try exact match first
+                    const markerName = `comment:${threadId}`;
+                    marker = editor.model.markers.get(markerName);
+                    
+                    // If not found, search for marker containing this threadId
+                    if (!marker) {
+                        for (const m of editor.model.markers) {
+                            if (m.name.includes(threadId) || m.name.includes(threadId.split(':')[0])) {
+                                marker = m;
+                                console.log(`📝 Found marker by search: ${m.name}`);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (marker) {
+                        const range = marker.getRange();
+                        let text = "";
+                        for (const item of range.getItems()) {
+                            if (item.is('$text') || item.is('$textProxy')) {
+                                text += item.data;
+                            }
+                        }
+                        anchorText = text.trim();
+                        console.log(`📝 Anchor text for new thread: "${anchorText}"`);
+                    } else {
+                        console.log(`⚠️ No marker found for thread: ${threadId}`);
+                    }
+                } catch (err) {
+                    console.warn("⚠️ Could not extract anchor text:", err);
+                }
+                
                 // Store locally
                 window._commentsStore[threadId] = {
                     threadId: threadId,
+                    anchorText: anchorText,
                     comments: (data.comments || []).map(c => ({
                         id: c.commentId,
                         content: c.content,
