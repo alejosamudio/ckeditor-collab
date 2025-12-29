@@ -671,20 +671,23 @@ class CommentsIntegration extends Plugin {
 
 /**
  * Helper to trigger CONTENT_UPDATE after comment changes
+ * Only sends unresolved comments to Bubble
  */
 function triggerContentUpdate(editor) {
     // Small delay to let CKEditor finish its internal updates
     setTimeout(() => {
         if (editor && typeof editor.getData === 'function') {
             const html = editor.getData();
-            const commentsData = Object.values(window._commentsStore || {});
+            // Filter to only unresolved comments
+            const allComments = Object.values(window._commentsStore || {});
+            const unresolvedComments = allComments.filter(t => !t.isResolved);
             
             window.sendToParent("CONTENT_UPDATE", { 
                 html: html,
-                commentsData: commentsData
+                commentsData: unresolvedComments
             });
             
-            console.log(`🟧 CONTENT_UPDATE (from adapter): ${html.slice(0, 80)}... (${commentsData.length} comments)`);
+            console.log(`🟧 CONTENT_UPDATE: ${html.slice(0, 80)}... (${unresolvedComments.length} unresolved / ${allComments.length} total comments)`);
         }
     }, 100);
 }
@@ -1802,6 +1805,17 @@ DecoupledEditor.create(document.querySelector("#editor"), editorConfig)
         }
 
         applyPendingLoad();
+
+        // ⭐ Trigger initial CONTENT_UPDATE to populate Bubble state
+        setTimeout(() => {
+            const html = editor.getData();
+            const commentsData = Object.values(window._commentsStore || {});
+            console.log("🟧 INITIAL CONTENT_UPDATE:", html.slice(0, 80), `(${commentsData.length} comments)`);
+            window.sendToParent("CONTENT_UPDATE", { 
+                html,
+                commentsData
+            });
+        }, 500);
 
         // Close AI panel on initial load
         try {
