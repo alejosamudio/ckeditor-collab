@@ -1012,7 +1012,21 @@ function findAIChatComposer(aiRoot) {
 async function handleFixWithAI(editor, threadId) {
     console.log("🟦 Fix with AI triggered for thread:", threadId);
     
-    const thread = window._commentsStore[threadId];
+    // ⭐ Use flexible matching to find the thread
+    let thread = window._commentsStore[threadId];
+    if (!thread) {
+        // Try flexible matching
+        for (const key of Object.keys(window._commentsStore)) {
+            const storedBase = key.split(':')[0];
+            const requestedBase = threadId.split(':')[0];
+            if (storedBase === requestedBase || key.startsWith(threadId) || threadId.startsWith(key)) {
+                thread = window._commentsStore[key];
+                console.log(`🔍 Found thread by flexible match: ${key}`);
+                break;
+            }
+        }
+    }
+    
     if (!thread) {
         console.warn("⚠️ Thread not found in store");
         return;
@@ -1095,20 +1109,48 @@ Rules:
         window._skipNextCommentsInjection = true;
         
         const aiChat = editor.plugins.get("AIChat");
-        if (!aiChat) return;
-        
-        if (aiChat.ui?.view?.panelView && !aiChat.ui.view.panelView.isVisible) {
-            editor.execute('toggleAi');
-            await new Promise(resolve => setTimeout(resolve, 500));
-        } else {
-            await new Promise(resolve => setTimeout(resolve, 200));
+        if (!aiChat) {
+            console.warn("⚠️ AIChat plugin not available");
+            return;
         }
         
-        const aiRoot = findAIChatRoot();
-        if (!aiRoot) return;
+        // ⭐ Check current state and force open if needed
+        const panelView = aiChat.ui?.view?.panelView;
+        const isVisible = panelView?.isVisible;
+        const aiRootBefore = findAIChatRoot();
+        
+        console.log("🟪 AI Panel state:", { 
+            panelViewExists: !!panelView, 
+            isVisible: isVisible,
+            aiRootExists: !!aiRootBefore 
+        });
+        
+        // Force open the panel if not clearly visible
+        if (!isVisible || !aiRootBefore) {
+            console.log("🟪 Opening AI panel...");
+            editor.execute('toggleAi');
+            await new Promise(resolve => setTimeout(resolve, 800));
+        }
+        
+        // Double-check and retry if needed
+        let aiRoot = findAIChatRoot();
+        if (!aiRoot) {
+            console.log("🟪 AI panel still not found, retrying toggle...");
+            editor.execute('toggleAi');
+            await new Promise(resolve => setTimeout(resolve, 800));
+            aiRoot = findAIChatRoot();
+        }
+        
+        if (!aiRoot) {
+            console.warn("⚠️ AI chat root not found after multiple attempts");
+            return;
+        }
         
         const composer = findAIChatComposer(aiRoot);
-        if (!composer) return;
+        if (!composer) {
+            console.warn("⚠️ AI chat composer not found");
+            return;
+        }
         
         if (composer.kind === "textarea") {
             composer.el.value = prompt;
