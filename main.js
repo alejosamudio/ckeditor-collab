@@ -434,6 +434,37 @@ class CommentsIntegration extends Plugin {
 
         console.log("🔧 Setting up CommentsAdapter...");
 
+        /**
+         * Helper: Find the actual key in _commentsStore using flexible matching
+         * Handles cases where IDs have/don't have suffixes
+         */
+        function findThreadKey(threadId) {
+            // Try exact match first
+            if (window._commentsStore[threadId]) {
+                return threadId;
+            }
+            
+            // Flexible matching
+            for (const key of Object.keys(window._commentsStore)) {
+                // Check if stored key starts with requested ID
+                if (key.startsWith(threadId + ':') || key.startsWith(threadId)) {
+                    return key;
+                }
+                // Check if requested ID starts with stored key
+                if (threadId.startsWith(key + ':') || threadId.startsWith(key)) {
+                    return key;
+                }
+                // Check base ID match (everything before first colon)
+                const storedBase = key.split(':')[0];
+                const requestedBase = threadId.split(':')[0];
+                if (storedBase === requestedBase) {
+                    return key;
+                }
+            }
+            
+            return null;
+        }
+
         // Set up the adapter - this overrides cloud storage
         commentsRepository.adapter = {
             /**
@@ -572,7 +603,10 @@ class CommentsIntegration extends Plugin {
             addComment: (data) => {
                 console.log('📝 Adapter: addComment', data);
                 
-                const thread = window._commentsStore[data.threadId];
+                // Flexible matching for threadId
+                const threadKey = findThreadKey(data.threadId);
+                const thread = threadKey ? window._commentsStore[threadKey] : null;
+                
                 if (thread) {
                     const newComment = {
                         id: data.commentId,
@@ -583,6 +617,7 @@ class CommentsIntegration extends Plugin {
                     };
                     thread.comments = thread.comments || [];
                     thread.comments.push(newComment);
+                    console.log(`✅ Added comment to thread ${threadKey}`);
                 }
                 
                 // Trigger update to Bubble
@@ -599,11 +634,15 @@ class CommentsIntegration extends Plugin {
             updateComment: (data) => {
                 console.log('📝 Adapter: updateComment', data);
                 
-                const thread = window._commentsStore[data.threadId];
+                // Flexible matching for threadId
+                const threadKey = findThreadKey(data.threadId);
+                const thread = threadKey ? window._commentsStore[threadKey] : null;
+                
                 if (thread && thread.comments) {
                     const comment = thread.comments.find(c => c.id === data.commentId);
                     if (comment && data.content !== undefined) {
                         comment.content = data.content;
+                        console.log(`✅ Updated comment in thread ${threadKey}`);
                     }
                 }
                 
@@ -619,9 +658,13 @@ class CommentsIntegration extends Plugin {
             removeComment: (data) => {
                 console.log('📝 Adapter: removeComment', data);
                 
-                const thread = window._commentsStore[data.threadId];
+                // Flexible matching for threadId
+                const threadKey = findThreadKey(data.threadId);
+                const thread = threadKey ? window._commentsStore[threadKey] : null;
+                
                 if (thread && thread.comments) {
                     thread.comments = thread.comments.filter(c => c.id !== data.commentId);
+                    console.log(`✅ Removed comment ${data.commentId} from thread ${threadKey}`);
                 }
                 
                 // Trigger update to Bubble
@@ -636,7 +679,12 @@ class CommentsIntegration extends Plugin {
             removeCommentThread: (data) => {
                 console.log('📝 Adapter: removeCommentThread', data);
                 
-                delete window._commentsStore[data.threadId];
+                // Flexible matching for threadId
+                const threadKey = findThreadKey(data.threadId);
+                if (threadKey) {
+                    delete window._commentsStore[threadKey];
+                    console.log(`✅ Removed thread ${threadKey}`);
+                }
                 
                 // Trigger update to Bubble
                 triggerContentUpdate(editor);
@@ -650,11 +698,15 @@ class CommentsIntegration extends Plugin {
             resolveCommentThread: (data) => {
                 console.log('📝 Adapter: resolveCommentThread', data);
                 
-                const thread = window._commentsStore[data.threadId];
+                // Flexible matching for threadId
+                const threadKey = findThreadKey(data.threadId);
+                const thread = threadKey ? window._commentsStore[threadKey] : null;
+                
                 if (thread) {
                     thread.isResolved = true;
                     thread.resolvedAt = new Date().toISOString();
                     thread.resolvedBy = 'user-1';
+                    console.log(`✅ Resolved thread ${threadKey}`);
                 }
                 
                 // Trigger update to Bubble
@@ -672,11 +724,15 @@ class CommentsIntegration extends Plugin {
             reopenCommentThread: (data) => {
                 console.log('📝 Adapter: reopenCommentThread', data);
                 
-                const thread = window._commentsStore[data.threadId];
+                // Flexible matching for threadId
+                const threadKey = findThreadKey(data.threadId);
+                const thread = threadKey ? window._commentsStore[threadKey] : null;
+                
                 if (thread) {
                     thread.isResolved = false;
                     thread.resolvedAt = null;
                     thread.resolvedBy = null;
+                    console.log(`✅ Reopened thread ${threadKey}`);
                 }
                 
                 // Trigger update to Bubble
@@ -691,9 +747,13 @@ class CommentsIntegration extends Plugin {
             updateCommentThread: (data) => {
                 console.log('📝 Adapter: updateCommentThread', data);
                 
-                const thread = window._commentsStore[data.threadId];
+                // Flexible matching for threadId
+                const threadKey = findThreadKey(data.threadId);
+                const thread = threadKey ? window._commentsStore[threadKey] : null;
+                
                 if (thread && data.attributes) {
                     thread.attributes = { ...thread.attributes, ...data.attributes };
+                    console.log(`✅ Updated attributes for thread ${threadKey}`);
                 }
                 
                 // Trigger update to Bubble
