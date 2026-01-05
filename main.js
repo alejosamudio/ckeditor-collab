@@ -16,7 +16,7 @@ const BRIDGE_ID = "CKE_BUBBLE_BRIDGE_V1";  // For receiving FROM Bubble
 const BRIDGE_ID_OUT = "CKE_BUBBLE_MINI_V1";  // For sending TO Bubble
 
 // --------------------------------------------------------
-// Intercept custom AI action API calls and block them
+// Intercept custom AI action API calls and execute locally
 // --------------------------------------------------------
 (function interceptCustomActions() {
     const originalFetch = window.fetch;
@@ -31,7 +31,23 @@ const BRIDGE_ID_OUT = "CKE_BUBBLE_MINI_V1";  // For sending TO Bubble
                 const actionId = body?.action_id || body?.actionId;
                 
                 if (actionId === 'fv-solve-all-comments') {
-                    console.log("🟦 Blocked fv-solve-all-comments API call (handled locally)");
+                    console.log("🟦 Intercepted fv-solve-all-comments API call - executing locally");
+                    
+                    // ⭐ Execute the command locally
+                    setTimeout(() => {
+                        if (window.editor) {
+                            try {
+                                const plugin = window.editor.plugins.get("SolveAllCommentsCommandPlugin");
+                                if (plugin && plugin._runSolveAllComments) {
+                                    plugin._runSolveAllComments();
+                                } else {
+                                    console.warn("⚠️ SolveAllCommentsCommandPlugin not found or missing method");
+                                }
+                            } catch (e) {
+                                console.error("❌ Failed to execute solve-all-comments:", e);
+                            }
+                        }
+                    }, 100);
                     
                     // Return a mock successful response immediately
                     return Promise.resolve(new Response(JSON.stringify({
