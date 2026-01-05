@@ -1521,15 +1521,57 @@ Rules:
                 return;
             }
 
-            if (aiChat.ui?.view?.panelView && !aiChat.ui.view.panelView.isVisible) {
+            // ⭐ Hide the quick actions menu/dropdown
+            try {
+                const dropdowns = document.querySelectorAll('.ck-dropdown__panel, .ck-balloon-panel');
+                dropdowns.forEach(panel => {
+                    if (panel.classList.contains('ck-dropdown__panel')) {
+                        panel.classList.add('ck-hidden');
+                    }
+                });
+                
+                // Also try clicking outside to close any open menus
+                const quickActionsDropdown = document.querySelector('.ck-ai-quick-actions-dropdown');
+                if (quickActionsDropdown) {
+                    const dropdown = quickActionsDropdown.closest('.ck-dropdown');
+                    if (dropdown && dropdown._dropdown) {
+                        dropdown._dropdown.isOpen = false;
+                    }
+                }
+                
+                console.log("🟪 Attempted to close quick actions menu");
+            } catch (e) {
+                console.warn("⚠️ Could not close quick actions menu:", e);
+            }
+
+            // ⭐ Check if AI panel is actually visible in DOM (same as Fix with AI)
+            const aiRootBefore = findAIChatRoot();
+            const isActuallyVisible = aiRootBefore && aiRootBefore.offsetParent !== null;
+            
+            console.log("🟪 AI Panel state:", { 
+                aiRootExists: !!aiRootBefore,
+                isActuallyVisible: isActuallyVisible
+            });
+            
+            // ⭐ Only open if NOT actually visible in DOM
+            if (!isActuallyVisible) {
+                console.log("🟪 Opening AI panel...");
                 editor.execute('toggleAi');
-                console.log("🟪 Opened AI panel");
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await new Promise(resolve => setTimeout(resolve, 800));
             } else {
+                console.log("🟪 AI panel already visible, skipping toggle");
                 await new Promise(resolve => setTimeout(resolve, 200));
             }
 
-            const aiRoot = findAIChatRoot();
+            // Verify panel is now open
+            let aiRoot = findAIChatRoot();
+            if (!aiRoot || aiRoot.offsetParent === null) {
+                console.log("🟪 AI panel still not visible, trying to open...");
+                editor.execute('toggleAi');
+                await new Promise(resolve => setTimeout(resolve, 800));
+                aiRoot = findAIChatRoot();
+            }
+            
             if (!aiRoot) {
                 console.warn("⚠️ Could not find AI chat root element");
                 return;
