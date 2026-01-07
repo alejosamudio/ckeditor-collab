@@ -20,44 +20,45 @@
 	--modern-shadow-lg: 0 4px 20px rgba(0, 0, 0, 0.12);
 	--modern-accent: #4f46e5;
 	
-	/* Document dimensions */
-	--doc-base-width: 210mm;
-	--doc-max-width: 210mm;
-}
-
-/* Larger document on big screens */
-@media (min-width: 1920px) {
-	:root {
-		--doc-max-width: 240mm;
-	}
-}
-
-@media (min-width: 2560px) {
-	:root {
-		--doc-max-width: 260mm;
-	}
+	/* Document dimensions - set to 100% for responsive */
+	--doc-base-width: 100%;
+	--doc-max-width: 100%;
 }
 
 body {
 	background: var(--modern-bg) !important;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	height: 100vh;
+}
+
+html {
+	overflow: hidden;
+	height: 100%;
 }
 
 .main-container {
 	font-family: var(--ck-content-font-family);
-	width: fit-content;
-	max-width: 100vw;
+	width: 100%;
+	max-width: 100%;
+	height: 100vh;
 	margin-left: auto;
 	margin-right: auto;
+	display: flex;
+	flex-direction: column;
 }
 
 .main-container .presence {
 	margin-bottom: 12px;
+	flex-shrink: 0;
 }
 
 .editor-container__editor-wrapper {
 	display: flex;
-	width: fit-content;
-	justify-content: center;
+	width: 100%;
+	flex: 1 1 auto;
+	min-height: 0;
 }
 
 .editor-container_document-editor {
@@ -66,20 +67,35 @@ body {
 	overflow: hidden;
 	background: var(--modern-surface);
 	box-shadow: var(--modern-shadow-lg);
-	width: fit-content;
-	max-width: 100vw;
+	width: 100%;
+	max-width: 100%;
+	flex: 1 1 auto;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
 }
 
 .editor-container_document-editor .editor-container__toolbar {
 	display: flex;
 	position: relative;
+	flex-shrink: 0;
+	z-index: 50;
 	background: var(--modern-surface);
 	border-bottom: 1px solid var(--modern-border);
+	width: 100%;
+}
+
+.editor-container_document-editor .editor-container__menu-bar {
+	position: relative;
+	flex-shrink: 0;
+	z-index: 51;
+	background: var(--modern-surface);
+	width: 100%;
 }
 
 .editor-container_document-editor .editor-container__toolbar > .ck.ck-toolbar {
 	flex-grow: 1;
-	width: 0;
+	width: 100% !important;
 	border: none !important;
 	background: var(--modern-surface);
 	border-radius: 0;
@@ -91,18 +107,21 @@ body {
 	background: var(--modern-surface);
 	border-radius: 0;
 	border-bottom: 1px solid var(--modern-border);
+	width: 100% !important;
 }
 
 .editor-container_document-editor .editor-container__editor-wrapper {
-	max-height: var(--ck-editor-height);
-	min-height: var(--ck-editor-height);
-	overflow-y: scroll;
+	flex: 1 1 auto;
+	overflow-y: auto;
+	overflow-x: hidden;
+	min-height: 0; /* Important for flex children to scroll properly */
 	background: linear-gradient(to bottom, #fafbfc 0%, #f5f6f7 100%);
 	scrollbar-width: thin;
 	scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
-	display: flex;
-	justify-content: center;
-	width: fit-content;
+	display: flex !important;
+	flex-direction: row !important;
+	align-items: flex-start !important;
+	width: 100% !important;
 }
 
 /* Modern scrollbar for Webkit browsers */
@@ -127,16 +146,36 @@ body {
 	margin-top: 32px;
 	margin-bottom: 32px;
 	height: 100%;
-	display: flex;
-	justify-content: center;
-	width: fit-content;
+	display: block !important;
+	width: calc(100% - 70px) !important; /* 100% minus sidebar width (50px + margins) */
+	min-width: 0 !important;
+}
+
+/* Large screens - wider sidebar */
+@media (min-width: 1700px) {
+	.editor-container_document-editor .editor-container__editor {
+		width: calc(100% - 195px) !important; /* 175px sidebar + margins */
+	}
+}
+
+/* When AI panel is open - even wider sidebar */
+.editor-container_document-editor.ai-panel-open .editor-container__editor,
+#editor-container.ai-panel-open .editor-container__editor {
+	width: calc(100% - 290px) !important; /* 270px sidebar + margins */
+}
+
+/* Target the #editor container directly */
+#editor {
+	width: 100% !important;
+	max-width: none !important;
+	display: block !important;
 }
 
 .editor-container_document-editor .editor-container__editor .ck.ck-editor__editable {
-	box-sizing: border-box;
-	min-width: var(--doc-base-width);
-	max-width: var(--doc-max-width);
-	width: 100%;
+	box-sizing: border-box !important;
+	min-width: 600px !important;
+	width: 100% !important;
+	max-width: 100% !important;
 	min-height: 297mm;
 	height: fit-content;
 	padding: 20mm 12mm;
@@ -144,17 +183,43 @@ body {
 	background: var(--modern-surface);
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 
 	            0 8px 24px rgba(0, 0, 0, 0.08);
-	flex: 0 0 auto;
-	margin-left: 72px;
-	margin-right: 72px;
+	margin-left: 24px;
+	margin-right: 0;
 	border-radius: 4px;
-	transition: box-shadow 0.2s ease, max-width 0.3s ease, margin 0.3s ease;
+	transition: box-shadow 0.2s ease, margin 0.3s ease;
 }
 
-/* When AI panel is open - wider sidebar, adjust margins */
+/* Force CKEditor internal wrappers to expand */
+.editor-container_document-editor .ck-editor__main,
+.editor-container_document-editor .ck.ck-editor,
+.editor-container_document-editor .ck-editor {
+	width: 100% !important;
+	max-width: 100% !important;
+	display: block !important;
+}
+
+/* Target ALL possible CKEditor content wrappers */
+.ck-content,
+.ck.ck-content,
+.ck-editor__editable,
+.ck.ck-editor__editable,
+.ck-editor__editable_inline,
+.ck.ck-editor__editable_inline,
+[contenteditable="true"].ck-editor__editable {
+	width: 100% !important;
+	max-width: 100% !important;
+}
+
+/* Remove any CKEditor default width constraints */
+.ck.ck-editor__editable:not(.ck-editor__nested-editable) {
+	width: 100% !important;
+	max-width: 100% !important;
+}
+
+/* When AI panel is open - adjust left margin */
 .editor-container_document-editor.ai-panel-open .editor-container__editor .ck.ck-editor__editable,
 #editor-container.ai-panel-open .editor-container__editor .ck.ck-editor__editable {
-	margin-left: 40px;
+	margin-left: 24px;
 	margin-right: 0;
 }
 
@@ -162,7 +227,7 @@ body {
 @media (min-width: 1600px) {
 	.editor-container_document-editor.ai-panel-open .editor-container__editor .ck.ck-editor__editable,
 	#editor-container.ai-panel-open .editor-container__editor .ck.ck-editor__editable {
-		margin-left: 60px;
+		margin-left: 40px;
 		margin-right: 0;
 	}
 }
@@ -170,16 +235,24 @@ body {
 @media (min-width: 1920px) {
 	.editor-container_document-editor.ai-panel-open .editor-container__editor .ck.ck-editor__editable,
 	#editor-container.ai-panel-open .editor-container__editor .ck.ck-editor__editable {
-		margin-left: 80px;
+		margin-left: 60px;
 		margin-right: 0;
 	}
 }
 
-/* When AI panel is closed - narrower sidebar (125px) */
+/* When AI panel is closed */
 .editor-container_document-editor:not(.ai-panel-open) .editor-container__editor .ck.ck-editor__editable,
 #editor-container:not(.ai-panel-open) .editor-container__editor .ck.ck-editor__editable {
-	margin-left: 72px;
+	margin-left: 24px;
 	margin-right: 0;
+}
+
+@media (min-width: 1200px) {
+	.editor-container_document-editor:not(.ai-panel-open) .editor-container__editor .ck.ck-editor__editable,
+	#editor-container:not(.ai-panel-open) .editor-container__editor .ck.ck-editor__editable {
+		margin-left: 48px;
+		margin-right: 0;
+	}
 }
 
 .editor-container_document-editor .editor-container__editor .ck.ck-editor__editable:focus {
@@ -199,6 +272,7 @@ body {
 	min-width: 50px !important;
 	max-width: 50px !important;
 	width: 50px !important;
+	flex-shrink: 0 !important;
 	margin-top: 28px;
 	margin-left: 10px;
 	margin-right: 10px;
