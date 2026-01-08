@@ -278,12 +278,12 @@ function applyPendingLoad() {
 // ENV VARIABLES
 // --------------------------------------------------------
 const LICENSE_KEY =
-    'eyJhbGciOiJFUzI1NiJ9.eyJleHAiOjE3NjgwMDMxOTksImp0aSI6ImQ5NzFlZjU2LTM1YmItNDljYS1iOGU3LWQzOTY0MWY0NDlhZCIsInVzYWdlRW5kcG9pbnQiOiJodHRwczovL3Byb3h5LWV2ZW50LmNrZWRpdG9yLmNvbSIsImRpc3RyaWJ1dGlvbkNoYW5uZWwiOlsiY2xvdWQiLCJkcnVwYWwiLCJzaCJdLCJ3aGl0ZUxhYmVsIjp0cnVlLCJsaWNlbnNlVHlwZSI6InRyaWFsIiwiZmVhdHVyZXMiOlsiKiJdLCJ2YyI6Ijk3OTIxYjYxIn0.jvsqpRuH9hli-s9U9Uvd-mRyW9jIWsd03-93eZdfjnP39WKvjGKHxaBg6k3XuP1DKRaC3MWd74x7AMGUTTXCCQ';
+    'eyJhbGciOiJFUzI1NiJ9.eyJleHAiOjE3NjkxMjYzOTksImp0aSI6IjNkODFjODY3LTU5YzMtNDEyMi05Y2E4LWE0ZGZmYzBiMmQ2YiIsInVzYWdlRW5kcG9pbnQiOiJodHRwczovL3Byb3h5LWV2ZW50LmNrZWRpdG9yLmNvbSIsImRpc3RyaWJ1dGlvbkNoYW5uZWwiOlsiY2xvdWQiLCJkcnVwYWwiLCJzaCJdLCJ3aGl0ZUxhYmVsIjp0cnVlLCJsaWNlbnNlVHlwZSI6InRyaWFsIiwiZmVhdHVyZXMiOlsiKiJdLCJ2YyI6IjI5MGM2MjE4In0.Py_jCZW2O2vLnuwK31B2pBI_VzVW3eeiS8Hq2L1_iBIEhETKVp2aptdYagVhjpsSRtXxPBtsFOYNxJNVdy9jhg';
 
 const TOKEN_URL =
-    'https://gww7y1r4wcsk.cke-cs.com/token/dev/f903477084613189d51e5bf1be3d077d0a7dab07d2e606571c52e58a90e0?limit=10';
+    'https://z8dxtf531r8r.cke-cs.com/token/dev/964182ea8985c7caa8c0a9a9f8d46ea000ed7a80e03b1346dda73b0d1e83?limit=10';
 
-const WEBSOCKET_URL = "wss://gww7y1r4wcsk.cke-cs.com/ws";
+const WEBSOCKET_URL = "wss://z8dxtf531r8r.cke-cs.com/ws";
 
 // Get document ID from URL parameter, or use default
 // URL format: ?docId=unique-document-id
