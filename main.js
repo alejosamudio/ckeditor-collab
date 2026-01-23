@@ -275,15 +275,11 @@ function applyPendingLoad() {
 }
 
 // --------------------------------------------------------
-// ENV VARIABLES
+// ENV VARIABLES - Set these in .env file
 // --------------------------------------------------------
-const LICENSE_KEY =
-    'eyJhbGciOiJFUzI1NiJ9.eyJleHAiOjE3NjkxMjYzOTksImp0aSI6IjNkODFjODY3LTU5YzMtNDEyMi05Y2E4LWE0ZGZmYzBiMmQ2YiIsInVzYWdlRW5kcG9pbnQiOiJodHRwczovL3Byb3h5LWV2ZW50LmNrZWRpdG9yLmNvbSIsImRpc3RyaWJ1dGlvbkNoYW5uZWwiOlsiY2xvdWQiLCJkcnVwYWwiLCJzaCJdLCJ3aGl0ZUxhYmVsIjp0cnVlLCJsaWNlbnNlVHlwZSI6InRyaWFsIiwiZmVhdHVyZXMiOlsiKiJdLCJ2YyI6IjI5MGM2MjE4In0.Py_jCZW2O2vLnuwK31B2pBI_VzVW3eeiS8Hq2L1_iBIEhETKVp2aptdYagVhjpsSRtXxPBtsFOYNxJNVdy9jhg';
-
-const TOKEN_URL =
-    'https://z8dxtf531r8r.cke-cs.com/token/dev/964182ea8985c7caa8c0a9a9f8d46ea000ed7a80e03b1346dda73b0d1e83?limit=10';
-
-const WEBSOCKET_URL = "wss://z8dxtf531r8r.cke-cs.com/ws";
+const LICENSE_KEY = import.meta.env.VITE_CK_LICENSE_KEY || '';
+const TOKEN_URL = import.meta.env.VITE_CK_TOKEN_URL || '';
+const WEBSOCKET_URL = import.meta.env.VITE_CK_WEBSOCKET_URL || '';
 
 // Get document ID from URL parameter, or use default
 // URL format: ?docId=unique-document-id
@@ -370,13 +366,11 @@ const {
     BlockQuote,
     Bold,
     Bookmark,
-    CKBox,
     ImageUpload,
     ImageInsert,
     ImageInsertViaUrl,
     AutoImage,
     PictureEditing,
-    CKBoxImageEdit,
     CodeBlock,
     TableColumnResize,
     Table,
@@ -1779,7 +1773,6 @@ const editorConfig = {
             "bookmark",
             "insertImage",
             "insertImageViaUrl",
-            "ckbox",
             "mediaEmbed",
             "insertTable",
             "blockQuote",
@@ -1817,8 +1810,6 @@ const editorConfig = {
         BlockQuote,
         Bold,
         Bookmark,
-        CKBox,
-        CKBoxImageEdit,
         CloudServices,
         Code,
         CodeBlock,
